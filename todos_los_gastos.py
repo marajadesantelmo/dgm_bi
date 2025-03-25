@@ -7,8 +7,6 @@ import mysql.connector
 import pandas as pd
 from tokens import host, user, database
 
-'C:\\Users\\ceo\\Documents\\Tableros Power BI'
-
 dolar_cotizacion = pd.read_excel('cotizacion_dolar_procesada.xlsx') #Ver que hay que mejorar esto
 
 connection = mysql.connector.connect(

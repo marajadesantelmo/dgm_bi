@@ -9,7 +9,7 @@ from tokens import host, user, database
 
 'C:\\Users\\ceo\\Documents\\Tableros Power BI'
 
-dolar_cotizacion = pd.read_excel('cotizacion_dolar_procesada.xlsx') #Ver que hay que mejorar esto
+#dolar_cotizacion = pd.read_excel('cotizacion_dolar_procesada.xlsx') #Ver que hay que mejorar esto
 
 connection = mysql.connector.connect(
     host=host, 
@@ -129,35 +129,48 @@ datos = pd.concat([ventas_mensual, sueldos_mensual, cargas_sociales_final, sindi
 #Obtenog códigos que luego uso
 codigos = datos[['Concepto', 'Numero']].drop_duplicates()
 
-orden_conceptos = [
-    "Ventas netas - Bs.As.", "Ventas netas - Salta", "Ventas netas - Otros",
-    "Sueldos Y Jornales A Pagar Patogenicos", "Sueldos Y Jornales A Pagar Bs As", 
-    "Sindicato - Bs.As.", "Sindicato - Salta", 
-    "Cargas Sociales - Bs.As.", "Cargas Sociales - Salta"
-]
 
-categorias_unicas = orden_conceptos + sorted(set(datos["Concepto"].unique()) - set(orden_conceptos))
 
-# Ensure 'Concepto' is a categorical variable with a predefined order
-datos["Concepto"] = pd.Categorical(
-    datos["Concepto"],
-    categories=categorias_unicas,
-    ordered=True
-)
+salta = datos[datos['Unidad de Negocios'] == 'Salta']
+bsas = datos[datos['Unidad de Negocios'] == 'Bs.As.']
 
 # Create the pivot table for P&L format
-cash_flow = datos.pivot_table(
+salta_cash_flow = salta.pivot_table(
     index= "Concepto", 
     columns="Mes", 
     values="Importe", 
     aggfunc="sum"
-).sort_index()
+).sort_index().reset_index().merge(codigos, on= "Concepto")
 
-# Convertir el índice en columna y resetearlo
-cash_flow = cash_flow.reset_index()
+bsas_cash_flow= bsas.pivot_table(
+    index= "Concepto", 
+    columns="Mes", 
+    values="Importe", 
+    aggfunc="sum"
+).sort_index().reset_index().merge(codigos, on= "Concepto")
 
-cash_flow = cash_flow.merge(codigos, on= "Concepto")
+salta_cash_flow = salta_cash_flow[['Numero'] + [col for col in salta_cash_flow.columns if col != 'Numero']]
+bsas_cash_flow = bsas_cash_flow[['Numero'] + [col for col in bsas_cash_flow.columns if col != 'Numero']]
 
-cash_flow = cash_flow[['Numero'] + [col for col in cash_flow.columns if col != 'Numero']]
 
-cash_flow.to_excel('ver_cashflow.xlsx')
+def ordenar(datos): 
+    orden_conceptos = [
+        "Ventas netas - Bs.As.", "Ventas netas - Salta", "Ventas netas - Otros",
+        "Sueldos Y Jornales A Pagar Patogenicos", "Sueldos Y Jornales A Pagar Bs As", 
+        "Sindicato - Bs.As.", "Sindicato - Salta", 
+        "Cargas Sociales - Bs.As.", "Cargas Sociales - Salta"
+    ]
+    categorias_unicas = orden_conceptos + sorted(set(datos["Concepto"].unique()) - set(orden_conceptos))
+    # Ensure 'Concepto' is a categorical variable with a predefined order
+    datos["Concepto"] = pd.Categorical(
+        datos["Concepto"],
+        categories=categorias_unicas,
+        ordered=True)
+    return datos.sort_values("Concepto")
+
+salta_cash_flow = ordenar(salta_cash_flow)
+bsas_cash_flow = ordenar(bsas_cash_flow)
+
+with pd.ExcelWriter("cash_flows.xlsx", engine="openpyxl") as writer:
+    bsas_cash_flow.to_excel(writer, sheet_name="Bs.As.", index=False)
+    salta_cash_flow.to_excel(writer, sheet_name="Salta", index=False)
