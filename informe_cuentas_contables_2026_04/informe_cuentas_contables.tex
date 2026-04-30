@@ -1,0 +1,279 @@
+% -*- coding: utf-8 -*-
+\documentclass[12pt, a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{lmodern}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+\usepackage{microtype}
+\usepackage{hyperref}
+
+\geometry{top=2.5cm, bottom=2.5cm, left=2.8cm, right=2.8cm}
+
+% Colores
+\definecolor{azuloscuro}{RGB}{31, 73, 125}
+\definecolor{azulclaro}{RGB}{189, 215, 238}
+\definecolor{grisclaro}{RGB}{242, 242, 242}
+\definecolor{verdeclaro}{RGB}{226, 239, 218}
+\definecolor{naranjaclaro}{RGB}{255, 242, 204}
+
+% Títulos
+\titleformat{\section}{\large\bfseries\color{azuloscuro}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{azuloscuro}}{}{0em}{}
+
+% Encabezado y pie de página
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{azuloscuro}{\small Facundo Lastra --- DGM BI --- Documentación Técnica}}
+\lhead{\textcolor{azuloscuro}{\small Informe de Extracción y Procesamiento de datos}}
+\cfoot{\textcolor{gray}{\small Página \thepage}}
+\renewcommand{\headrulewidth}{0.3pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=azuloscuro,
+    urlcolor=azuloscuro,
+    pdfauthor={Facundo Lastra --- DGM BI},
+    pdftitle={Informe de Extracción y Procesamiento de datos - Cálculos de Margen Operativo}
+}
+
+\begin{document}
+
+\begin{center}
+    {\Huge\bfseries\color{azuloscuro} Informe de Extracción y Procesamiento de datos\par}
+    \vspace{0.5cm}
+    {\Large\color{gray} Cálculos de margen operativo por Unidad de Negocio\par}
+\end{center}
+
+% ─────────────────────────────────────────────
+\section{Descripción General del Procesamiento de datos del software táctica para DGM}
+
+Mediante un script desarrollado en Python se genera un archivo Excel de \textbf{Margen operativo (Ingresos vs.\ Gastos)} con datos extraídos directamente de la base de datos MySQL del sistema de gestión. Estos datos luego pueden ser también visualizados por un dashboard en Power BI, pero el Excel sirve como reporte detallado y fuente de datos para análisis adicionales.
+
+El proceso comprende los siguientes pasos:
+
+\begin{enumerate}
+    \item \textbf{Conexión a la base de datos} mediante credenciales almacenadas.
+    \item \textbf{Extracción de ventas} desde el módulo de facturación, con clasificación por unidad de negocio.
+    \item \textbf{Extracción de gastos} desde el libro diario (asientos contables), clasificados en cuatro categorías: sueldos, cargas sociales, aportes sindicales y otros egresos operativos.
+    \item \textbf{Consolidación} de ingresos y egresos en tablas pivoteadas por mes.
+    \item \textbf{Exportación a Excel} con una hoja por unidad de negocio: \emph{Bs.As.} y \emph{Salta}.
+    \item \textbf{Visualización de resultados en PowerBI} a través de un dashboard que consume el mismo archivo Excel.
+\end{enumerate}
+
+% ─────────────────────────────────────────────
+\section{Unidades de Negocio}
+
+Los datos se clasifican en tres unidades de negocio según la sucursal emisora del comprobante:
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{>{\bfseries}cl}
+\toprule
+\rowcolor{azulclaro}
+\textbf{NroSucursal} & \textbf{Unidad de Negocio} \\
+\midrule
+3 u 8 & Bs.As. \\
+\rowcolor{grisclaro}
+4 & Salta \\
+Resto & Otros \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+\textbf{Nota:} El cliente ``Towards'' se reclasifica manualmente a ``Otros'' con independencia de la sucursal emisora. La unidad ``Otros'' sólo aparece en ventas; no tiene gastos asignados.
+
+% ─────────────────────────────────────────────
+\section{Ingresos --- Ventas Netas}
+
+Los ingresos se extraen del módulo de facturación (tablas \texttt{facturas} y \texttt{facturasitems}). El importe neto se calcula como:
+
+\[
+\text{Importe} = \text{Precio} \times \text{Cotización de Moneda} \times \left(1 - \frac{\text{Descuento}}{100}\right)
+\]
+
+\subsection*{Criterios de exclusión e inclusión}
+
+\begin{itemize}
+    \item Se \textbf{excluyen} facturas con estado 6 (anuladas).
+    \item Se \textbf{excluyen} los productos con códigos \texttt{4.VEH.10.5 BSAS} y \texttt{4.VEH.10.5} (vehículos / activos fijos, no operativos).
+    \item Las \textbf{Notas de Crédito} (Tipo = 1) se registran con importe negativo, reduciendo las ventas netas (neto de devoluciones y bonificaciones).
+\end{itemize}
+
+% ─────────────────────────────────────────────
+\section{Egresos --- Cuentas Contables por Categoría}
+
+Los gastos se extraen del libro diario a través de las tablas \texttt{asientos} y \texttt{asientositems}, filtrando por número de cuenta contable o por descripción.
+
+% ---- 4.1 Sueldos
+\subsection{Sueldos y Jornales}
+
+Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\rowcolor{azulclaro}
+\textbf{Número de Cuenta} & \textbf{Descripción} \\
+\midrule
+21301001 & Sueldos y Jornales a Pagar --- Bs.As. \\
+\rowcolor{grisclaro}
+21301002 & Sueldos y Jornales a Pagar --- Patogénicos (Salta) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ---- 4.2 Cargas Sociales
+\subsection{Cargas Sociales}
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\rowcolor{azulclaro}
+\textbf{Número de Cuenta} & \textbf{Descripción} \\
+\midrule
+21302001 & Cargas sociales \\
+\rowcolor{grisclaro}
+21302002 & Cargas sociales \\
+21302004 & Cargas sociales \\
+\rowcolor{grisclaro}
+21302005 & Cargas sociales \\
+21302006 & Cargas sociales \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+\textbf{Criterio de distribución:} Estas cuentas no están desagregadas por unidad de negocio en la contabilidad. El script las distribuye usando la \textbf{proporción de sueldos} de cada unidad sobre el total mensual bajo el supuesto de que las cargas sociales se generan en la misma proporción que los sueldos brutos de cada unidad de negocio.
+
+\[
+\text{Cargas Sociales}_{UdN} = \text{Total Cargas Sociales} \times \frac{\text{Sueldos}_{UdN}}{\text{Total Sueldos}}
+\]
+
+
+
+% ---- 4.3 Sindicato
+\subsection{Aportes Sindicales}
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\rowcolor{azulclaro}
+\textbf{Número de Cuenta} & \textbf{Descripción} \\
+\midrule
+21302007 & Cuota / aporte sindical \\
+\rowcolor{grisclaro}
+21302008 & Cuota / aporte sindical \\
+21302009 & Cuota / aporte sindical \\
+\rowcolor{grisclaro}
+21302010 & Cuota / aporte sindical \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+\textbf{Criterio de distribución:} Idéntico al de cargas sociales --- se distribuye usando la participación de sueldos por unidad de negocio bajo el supuesto de que los aportes sindicales se generan en la misma proporción que los sueldos brutos de cada unidad de negocio.
+
+% ─────────────────────────────────────────────
+\section{Cuentas Contables --- Buenos Aires}
+
+\vspace{0.5em}
+\begin{center}
+\begin{longtable}{>{\ttfamily}ll}
+\toprule
+\rowcolor{azulclaro}
+\textbf{\normalfont Número} & \textbf{Concepto} \\
+\midrule
+\endfirsthead
+\midrule
+\rowcolor{azulclaro}
+\textbf{\normalfont Número} & \textbf{Concepto} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\rowcolor{verdeclaro}
+& Ventas netas --- Bs.As. \\
+21301001 & Sueldos y Jornales a Pagar Bs.As. \\
+\rowcolor{grisclaro}
+& Sindicato --- Bs.As. \textnormal{\small (prorrateo por sueldos)} \\
+& Cargas Sociales --- Bs.As. \textnormal{\small (prorrateo por sueldos)} \\
+\rowcolor{grisclaro}
+11501001 & Bolsas \\
+42101001 & Bs.As.\ Alquileres y Expensas \\
+\rowcolor{grisclaro}
+42101010 & Bs.As.\ Combustible \\
+42101056 & Bs.As.\ Mantenimiento \\
+\rowcolor{grisclaro}
+42101036 & Bs.As.\ Servicio de Limpieza y de Mantenimiento \\
+42103011 & Bs.As.\ Servicios de Limpieza y Mantenimiento \\
+\rowcolor{grisclaro}
+11504001 & Cajas de Cartón \\
+\end{longtable}
+\end{center}
+
+% ─────────────────────────────────────────────
+\section{Cuentas Contables --- Salta}
+
+\vspace{0.5em}
+\begin{center}
+\begin{longtable}{>{\ttfamily}ll}
+\toprule
+\rowcolor{azulclaro}
+\textbf{\normalfont Número} & \textbf{Concepto} \\
+\midrule
+\endfirsthead
+\midrule
+\rowcolor{azulclaro}
+\textbf{\normalfont Número} & \textbf{Concepto} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\rowcolor{verdeclaro}
+& Ventas netas --- Salta \\
+21301002 & Sueldos y Jornales a Pagar Patogénicos \\
+\rowcolor{grisclaro}
+& Sindicato --- Salta \textnormal{\small (prorrateo por sueldos)} \\
+& Cargas Sociales --- Salta \textnormal{\small (prorrateo por sueldos)} \\
+\rowcolor{grisclaro}
+42201031 & Pat.\ Mantenimiento de Maquinarias \\
+42201001 & Pat.\ Alquileres y Expensas \\
+\rowcolor{grisclaro}
+42201041 & Pat.\ Bolsas \\
+42201010 & Pat.\ Combustible \\
+\rowcolor{grisclaro}
+42201056 & Pat.\ Mantenimiento \\
+42201036 & Pat.\ Servicio de Limpieza y de Mantenimiento \\
+\end{longtable}
+\end{center}
+
+% ─────────────────────────────────────────────
+\section{Consideraciones y Advertencias}
+
+\begin{enumerate}
+    \item \textbf{Cuentas del Activo (11xxxxxx) como egresos:} Las cuentas \texttt{11501001} (Bolsas) y \texttt{11504001} (Cajas de Cartón) pertenecen al rango de Activo Corriente (inventario/insumos). Se incluyen como egresos del período. Se recomienda verificar que los movimientos registrados correspondan efectivamente a consumos y no a compras que deben permanecer activadas.
+
+    \item \textbf{Prorrateo de cargas sociales y sindicato:} No surge de comprobantes directos por unidad de negocio, sino de una estimación basada en la proporción de sueldos. Si los porcentajes de cargas sociales difieren entre unidades, este método introduce una distorsión.
+
+    \item \textbf{La unidad ``Otros''} sólo aparece en el lado de ventas; no tiene gastos asignados, por lo que no genera una hoja propia en el Excel.
+
+    \item \textbf{Período:} Todos los datos se filtran desde el \textbf{1 de enero de 2024} en adelante, tanto en facturación como en asientos contables.
+
+    \item \textbf{Mantenimiento por descripción:} El script incluye adicionalmente todos los asientos cuya descripción de cuenta contenga la palabra ``Mantenimiento'', más allá de los números de cuenta explícitos. Esto puede capturar cuentas no previstas originalmente si se crean nuevas cuentas con ese nombre.
+\end{enumerate}
+
+\end{document}
