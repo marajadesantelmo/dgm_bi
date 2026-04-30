@@ -161,7 +161,7 @@ egresos_detalle.loc[egresos_detalle['Numero'].astype(str).isin(salta_numeros), '
 egresos_detalle['Concepto'] = egresos_detalle['Descripcion']
 egresos_detalle['Importe'] = egresos_detalle['Importe1']
 egresos_detalle['Detalle'] = egresos_detalle['Descripcion']
-egresos_detalle['Origen'] = 'Egresos'
+egresos_detalle['Origen'] = 'Compras'
 egresos_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
 egresos_detalle = egresos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
 
