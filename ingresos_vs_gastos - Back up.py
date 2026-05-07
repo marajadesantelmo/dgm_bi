@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Generacion de margen operativo en excel
+Generacion de cashflow en excel
 """
 
 import mysql.connector
@@ -51,7 +51,7 @@ AND f.FechaEmision >= '2024-01-01';
 data = cursor.fetchall()
 columns = [column[0] for column in cursor.description]
 df = pd.DataFrame(data, columns=columns)
-#df.loc[df['Cliente'].str.contains('Towards', na=False), 'Unidad de Negocios'] = 'Otros'
+df.loc[df['Cliente'].str.contains('Towards', na=False), 'Unidad de Negocios'] = 'Otros'
 df['Mes'] = df['FechaEmision'].dt.to_period('M')
 ventas_detalle = df[['FechaEmision', 'Mes', 'Unidad de Negocios', 'Cliente', 'Importe']].copy()
 ventas_detalle['Concepto'] = 'Ventas netas - ' + ventas_detalle['Unidad de Negocios']
@@ -67,7 +67,7 @@ ventas_mensual['Numero'] = '     '
 
 #Gastos
 cursor.execute("""
-SELECT a.FechaCreacion, ai.Importe1, cc.Descripcion AS Concepto, cc.Numero, ai.TipoSaldo, a.Descripcion AS Detalle
+SELECT a.FechaCreacion, ai.Importe1, cc.Descripcion, cc.Numero
 FROM asientos a
 LEFT JOIN asientositems ai ON a.RecID = ai.IDAsiento
 LEFT JOIN cuentascontables cc ON cc.RecID = ai.IDCuentaContable
@@ -77,25 +77,22 @@ data = cursor.fetchall()
 columns = [column[0] for column in cursor.description]
 gastos = pd.DataFrame(data, columns=columns)
 gastos['FechaCreacion'] = pd.to_datetime(gastos['FechaCreacion'])
-gastos['Concepto'] = gastos['Concepto'].str.strip().str.title()
+gastos['Descripcion'] = gastos['Descripcion'].str.strip().str.title()
 
-#Filtro segun cuentas (dejo anteriores en la que busqué)
-sueldos = gastos[gastos['Numero'].isin(['21301001', '21301002'])].copy()    # Esto es modulo de gastos
-#sueldos = gastos[gastos['Numero'].isin(['42101029', '42101023', '42201029', '42201023', '42301029', '42301023'])].copy()    ## Esto es modulo de egresos
-#sueldos = gastos[gastos['Numero'].isin(['42101029','42102023', '42201029', '42202023'])].copy()
-
-#Tomo solo el debe
-sueldos = sueldos[sueldos['TipoSaldo'] == 0].copy()
-
-#Formato
+#sueldos = gastos[gastos['Numero'].isin(['21301001', '21301002'])].copy()
+#sueldos = gastos[gastos['Numero'].isin(['42101029', '42101023', '42201029', '42201023', '42301029', '42301023'])].copy()
+sueldos = gastos[gastos['Numero'].isin(['42101029', '42101023', '42201029', '42201023', '42301029', '42301023'])].copy()
 sueldos.loc[:, 'Mes'] = sueldos['FechaCreacion'].dt.to_period('M')
-sueldos.loc[sueldos['Concepto'] == 'Sueldos Y Jornales A Pagar Bs As', 'Unidad de Negocios'] = 'Bs.As.'
-sueldos.loc[sueldos['Concepto'] == 'Sueldos Y Jornales A Pagar Patogenicos', 'Unidad de Negocios'] = 'Salta'
-sueldos_mensual= sueldos.groupby(['Unidad de Negocios', 'Numero', 'Concepto', 'Mes'])['Importe1'].sum().reset_index()
-sueldos_mensual.rename(columns={'Importe1': 'Importe'}, inplace=True)
-sueldos_mensual['Numero'] = '                 '
-sueldos_detalle = sueldos[['FechaCreacion', 'Unidad de Negocios', 'Mes', 'Numero', 'Concepto',  'Detalle', 'Importe1']].copy()
+sueldos_mensual= sueldos.groupby(['Numero', 'Descripcion', 'Mes'])['Importe1'].sum().reset_index()
+sueldos_mensual.columns = ['Numero', 'Concepto', 'Mes', 'Importe']
+sueldos_mensual.loc[sueldos_mensual['Concepto'] == 'Sueldos Y Jornales A Pagar Bs As', 'Unidad de Negocios'] = 'Bs.As.'
+sueldos_mensual.loc[sueldos_mensual['Concepto'] == 'Sueldos Y Jornales A Pagar Patogenicos', 'Unidad de Negocios'] = 'Salta'
+sueldos_detalle = sueldos[['FechaCreacion', 'Mes', 'Numero', 'Descripcion', 'Importe1']].copy()
+sueldos_detalle.loc[sueldos_detalle['Descripcion'] == 'Sueldos Y Jornales A Pagar Bs As', 'Unidad de Negocios'] = 'Bs.As.'
+sueldos_detalle.loc[sueldos_detalle['Descripcion'] == 'Sueldos Y Jornales A Pagar Patogenicos', 'Unidad de Negocios'] = 'Salta'
+sueldos_detalle['Concepto'] = sueldos_detalle['Descripcion']
 sueldos_detalle['Importe'] = sueldos_detalle['Importe1']
+sueldos_detalle['Detalle'] = sueldos_detalle['Descripcion']
 sueldos_detalle['Origen'] = 'Sueldos'
 sueldos_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
 sueldos_detalle = sueldos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
@@ -104,7 +101,6 @@ sueldos_detalle = sueldos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concep
 total_mensual_sueldos = sueldos.groupby('Mes')['Importe1'].sum().reset_index()
 total_mensual_sueldos.rename(columns={'Importe1': 'Total Mensual'}, inplace=True)
 sueldos_mensual_unegocio = sueldos_mensual.merge(total_mensual_sueldos, on='Mes', how='left')
-sueldos_mensual_unegocio.rename(columns={'Importe1': 'Importe'}, inplace=True)
 sueldos_mensual_unegocio['Participacion'] = sueldos_mensual_unegocio['Importe'] / sueldos_mensual_unegocio['Total Mensual']
 sueldos_mensual_unegocio = sueldos_mensual_unegocio[['Concepto', 'Mes', 'Importe', 'Participacion']]
 sueldos_mensual_unegocio.loc[sueldos_mensual_unegocio['Concepto'] == 'Sueldos Y Jornales A Pagar Bs As', 'Unidad de Negocios'] = 'Bs.As.'
@@ -112,7 +108,6 @@ sueldos_mensual_unegocio.loc[sueldos_mensual_unegocio['Concepto'] == 'Sueldos Y 
 sueldos_mensual_unegocio = sueldos_mensual_unegocio[['Mes', 'Unidad de Negocios', 'Participacion']]
 
 cargas_sociales = gastos[gastos['Numero'].isin(['21302001', '21302002', '21302004', '21302005', '21302006'])].copy()
-cargas_sociales = cargas_sociales[cargas_sociales['TipoSaldo'] == 0]
 cargas_sociales['Mes'] = cargas_sociales["FechaCreacion"].dt.to_period("M")
 cargas_sociales_mensual = cargas_sociales.groupby(cargas_sociales["Mes"])["Importe1"].sum().reset_index()
 cargas_sociales_mensual.columns = ['Mes', 'Cargas Sociales Total']
@@ -121,51 +116,53 @@ cargas_sociales_mensual_unegocio['Importe'] = (cargas_sociales_mensual_unegocio[
 cargas_sociales_mensual_unegocio['Concepto'] = 'Cargas Sociales - ' + cargas_sociales_mensual_unegocio['Unidad de Negocios']
 cargas_sociales_final = cargas_sociales_mensual_unegocio[['Unidad de Negocios', 'Mes', 'Concepto', 'Importe']]
 cargas_sociales_final['Numero'] = '                 '
-cargas_sociales_detalle = cargas_sociales_final[['Mes', 'Unidad de Negocios', 'Importe', 'Concepto']]
-
-#cargas_sociales_detalle = cargas_sociales.merge(sueldos_mensual_unegocio, on='Mes', how='left')
-#cargas_sociales.rename(columns={'FechaCreacion': 'Fecha', 
-#                                'Importe1': 'Importe', 
-#                                'Descripcion': 'Concepto'}, inplace=True)
-#cargas_sociales_detalle = cargas_sociales[['Fecha', 'Mes', 'Concepto', 'Numero', 'Importe']].copy()
-#cargas_sociales_detalle['Unidad de Negocios'] = "-"#
+cargas_sociales_detalle = cargas_sociales.merge(sueldos_mensual_unegocio, on='Mes', how='left')
+cargas_sociales_detalle['Concepto'] = 'Cargas Sociales - ' + cargas_sociales_detalle['Unidad de Negocios']
+cargas_sociales_detalle['Importe'] = cargas_sociales_detalle['Importe1'] * cargas_sociales_detalle['Participacion']
+cargas_sociales_detalle['Detalle'] = cargas_sociales_detalle['Descripcion']
+cargas_sociales_detalle['Origen'] = 'Cargas Sociales'
+cargas_sociales_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
+cargas_sociales_detalle = cargas_sociales_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
 
 sindicato = gastos[gastos['Numero'].isin(['21302007', '21302008', '21302009', '21302010'])].copy()
 sindicato['Mes'] = sindicato["FechaCreacion"].dt.to_period("M")
 sindicato_mensual = sindicato.groupby(sindicato["Mes"])["Importe1"].sum().reset_index()
 sindicato_mensual.columns = ['Mes', 'Sindicato Total']
+
 sindicato_mensual_unegocio = sueldos_mensual_unegocio.merge(sindicato_mensual, on='Mes', how='left')
 sindicato_mensual_unegocio['Importe'] = (sindicato_mensual_unegocio['Sindicato Total'] * sindicato_mensual_unegocio['Participacion'])
 sindicato_mensual_unegocio['Concepto'] = 'Sindicato - ' + sindicato_mensual_unegocio['Unidad de Negocios']
 sindicato_final = sindicato_mensual_unegocio[['Unidad de Negocios', 'Mes', 'Concepto', 'Importe']]
 sindicato_final['Numero'] = '                 '
-sindicato_detalle = sindicato_final[['Mes', 'Unidad de Negocios', 'Importe', 'Concepto']]
+sindicato_detalle = sindicato.merge(sueldos_mensual_unegocio, on='Mes', how='left')
+sindicato_detalle['Concepto'] = 'Sindicato - ' + sindicato_detalle['Unidad de Negocios']
+sindicato_detalle['Importe'] = sindicato_detalle['Importe1'] * sindicato_detalle['Participacion']
+sindicato_detalle['Detalle'] = sindicato_detalle['Descripcion']
+sindicato_detalle['Origen'] = 'Sindicato'
+sindicato_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
+sindicato_detalle = sindicato_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
 
 
 
 egresos1 = gastos[gastos['Numero'].isin(['42201010', '42101010', '42101056', '42201031', '42101001', '42201001', '11504001', '11501001', '42201041' ])]
-egresos2 = gastos[gastos['Concepto'].str.contains('Mantenimiento|mantenimiento')]
+egresos2 = gastos[gastos['Descripcion'].str.contains('Mantenimiento|mantenimiento')]
 egresos = pd.concat([egresos1, egresos2])
 
-egresos = egresos[~egresos['Detalle'].str.contains('INFL')].copy()
-egresos.loc[ egresos['Detalle'].str.contains('Nota de Crédito|Anulación', case=False, na=False),   'Importe1'] *= -1
-
-
-
 egresos['Mes'] = egresos["FechaCreacion"].dt.to_period("M")
-egresos_mensual = egresos.groupby(["Mes", "Numero", "Concepto"])["Importe1"].sum().reset_index()
+egresos_mensual = egresos.groupby(["Mes", "Numero", "Descripcion"])["Importe1"].sum().reset_index()
 bsas_numeros = ["11501001", "42101001", "42101010", "42101056", "42101036", "42103011", "11504001"]
 salta_numeros = ["42201031", "42201001", "42201041", "42201010", "42201056", "42201036"]
 egresos_mensual.loc[egresos_mensual["Numero"].astype(str).isin(bsas_numeros), "Unidad de Negocios"] = "Bs.As."
 egresos_mensual.loc[egresos_mensual["Numero"].astype(str).isin(salta_numeros), "Unidad de Negocios"] = "Salta"
-egresos_mensual.rename(columns={ 'Importe1': 'Importe'}, inplace=True)
 
-egresos_detalle = egresos[['FechaCreacion', 'Numero', 'Concepto', 'Detalle', 'Importe1']].copy()
+egresos_mensual.columns = ['Mes', 'Numero', 'Concepto', 'Importe', 'Unidad de Negocios']
+egresos_detalle = egresos[['FechaCreacion', 'Numero', 'Descripcion', 'Importe1']].copy()
 egresos_detalle['Mes'] = egresos['Mes']
 egresos_detalle.loc[egresos_detalle['Numero'].astype(str).isin(bsas_numeros), 'Unidad de Negocios'] = 'Bs.As.'
 egresos_detalle.loc[egresos_detalle['Numero'].astype(str).isin(salta_numeros), 'Unidad de Negocios'] = 'Salta'
+egresos_detalle['Concepto'] = egresos_detalle['Descripcion']
 egresos_detalle['Importe'] = egresos_detalle['Importe1']
-#egresos_detalle['Detalle'] = egresos_detalle['Descripcion']
+egresos_detalle['Detalle'] = egresos_detalle['Descripcion']
 egresos_detalle['Origen'] = 'Compras'
 egresos_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
 egresos_detalle = egresos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
@@ -181,7 +178,6 @@ movimientos = pd.concat([
     sindicato_detalle,
     egresos_detalle
 ], ignore_index=True)
-
 movimientos = movimientos[movimientos['Unidad de Negocios'].isin(['Bs.As.', 'Salta'])].copy()
 movimientos.sort_values(['Unidad de Negocios', 'Fecha', 'Concepto', 'Numero'], inplace=True)
 
@@ -189,45 +185,8 @@ movimientos.sort_values(['Unidad de Negocios', 'Fecha', 'Concepto', 'Numero'], i
 
 salta = datos[datos['Unidad de Negocios'] == 'Salta']
 bsas = datos[datos['Unidad de Negocios'] == 'Bs.As.']
-
-def add_prefix(concepto):
-    if pd.isna(concepto):
-        return concepto
-    
-    concepto_str = str(concepto)
-
-    if "Ventas netas" in concepto_str:
-        return "00-" + concepto_str
-    
-    elif any(x in concepto_str for x in [
-        "Sueldos Y Jornales",
-        "Cargas Sociales",
-        "Sindicato"
-    ]):
-        return "01-" + concepto_str
-    
-    else:
-        return "02-" + concepto_str
-
-def get_grupo(concepto):
-    if concepto.startswith("00-"):
-        return "1.Ventas"
-    elif concepto.startswith("01-"):
-        return "2.RRHH"
-    else:
-        return "3.Egresos"
-
-bsas['Concepto'] = bsas['Concepto'].apply(add_prefix)
-salta['Concepto'] = salta['Concepto'].apply(add_prefix)
-
 salta_movimientos = movimientos[movimientos['Unidad de Negocios'] == 'Salta'].copy()
 bsas_movimientos = movimientos[movimientos['Unidad de Negocios'] == 'Bs.As.'].copy()
-
-bsas_movimientos['Concepto'] = bsas_movimientos['Concepto'].apply(add_prefix)
-salta_movimientos['Concepto'] = salta_movimientos['Concepto'].apply(add_prefix)
-
-bsas_movimientos['Grupo'] = bsas_movimientos['Concepto'].apply(get_grupo)
-salta_movimientos['Grupo'] = salta_movimientos['Concepto'].apply(get_grupo)
 
 # Create the pivot table for P&L format
 salta_cash_flow = salta.pivot_table(
@@ -235,25 +194,25 @@ salta_cash_flow = salta.pivot_table(
     columns="Mes", 
     values="Importe", 
     aggfunc="sum"
-).sort_index().reset_index()
+).sort_index().reset_index().merge(codigos, on= "Concepto")
 
 bsas_cash_flow= bsas.pivot_table(
     index= "Concepto", 
     columns="Mes", 
     values="Importe", 
     aggfunc="sum"
-).sort_index().reset_index()
-    
-salta_cash_flow['Grupo'] = salta_cash_flow['Concepto'].apply(get_grupo)
-bsas_cash_flow['Grupo'] = bsas_cash_flow['Concepto'].apply(get_grupo)
+).sort_index().reset_index().merge(codigos, on= "Concepto")
+
+salta_cash_flow = salta_cash_flow[['Numero'] + [col for col in salta_cash_flow.columns if col != 'Numero']]
+bsas_cash_flow = bsas_cash_flow[['Numero'] + [col for col in bsas_cash_flow.columns if col != 'Numero']]
 
 
 def ordenar(datos): 
     orden_conceptos = [
-        "00-Ventas netas - Bs.As.", "00-Ventas netas - Salta", "00-Ventas netas - Otros",
-        "01-Sueldos Y Jornales A Pagar Patogenicos", "01-Sueldos Y Jornales A Pagar Bs As", 
-        "01-Sindicato - Bs.As.", "01-Sindicato - Salta", 
-        "01-Cargas Sociales - Bs.As.", "01-Cargas Sociales - Salta"
+        "Ventas netas - Bs.As.", "Ventas netas - Salta", "Ventas netas - Otros",
+        "Sueldos Y Jornales A Pagar Patogenicos", "Sueldos Y Jornales A Pagar Bs As", 
+        "Sindicato - Bs.As.", "Sindicato - Salta", 
+        "Cargas Sociales - Bs.As.", "Cargas Sociales - Salta"
     ]
     categorias_unicas = orden_conceptos + sorted(set(datos["Concepto"].unique()) - set(orden_conceptos))
     # Ensure 'Concepto' is a categorical variable with a predefined order
@@ -265,17 +224,6 @@ def ordenar(datos):
 
 salta_cash_flow = ordenar(salta_cash_flow)
 bsas_cash_flow = ordenar(bsas_cash_flow)
-#Columna grupo va primero
-cols = ['Grupo'] + [col for col in bsas_cash_flow.columns if col != 'Grupo']
-bsas_cash_flow = bsas_cash_flow[cols]
-cols = ['Grupo'] + [col for col in salta_cash_flow.columns if col != 'Grupo']
-salta_cash_flow = salta_cash_flow[cols]
-
-cols = ['Grupo'] + [col for col in bsas_movimientos.columns if col != 'Grupo']
-bsas_movimientos = bsas_movimientos[cols]
-cols = ['Grupo'] + [col for col in salta_movimientos.columns if col != 'Grupo']
-salta_movimientos = salta_movimientos[cols]
-
 
 with pd.ExcelWriter("margen_2026.xlsx", engine="openpyxl") as writer:
     bsas_cash_flow.to_excel(writer, sheet_name="Bs.As.", index=False)
