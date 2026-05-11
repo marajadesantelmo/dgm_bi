@@ -67,6 +67,8 @@ cursor.execute("""SELECT
     ci.ImportePrecio1 AS Importe,
     c.FechaCreacion AS Fecha,
     f.RazonSocial AS Proveedor,
+    c.Numero,
+    c.NroSucursal,
     CASE 
         WHEN c.Estado = 0 THEN 'Pendiente'
         WHEN c.Estado = 1 THEN 'Pagado'
