@@ -56,10 +56,12 @@ df['Mes'] = df['FechaEmision'].dt.to_period('M')
 ventas_detalle = df[['FechaEmision', 'Mes', 'Unidad de Negocios', 'Cliente', 'Importe']].copy()
 ventas_detalle['Concepto'] = 'Ventas netas - ' + ventas_detalle['Unidad de Negocios']
 ventas_detalle['Numero'] = ''
-ventas_detalle['Detalle'] = ventas_detalle['Cliente']
+ventas_detalle['RazonSocial'] = ventas_detalle['Cliente']
 ventas_detalle['Origen'] = 'Ventas'
 ventas_detalle.rename(columns={'FechaEmision': 'Fecha'}, inplace=True)
-ventas_detalle = ventas_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
+ventas_detalle = ventas_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'RazonSocial', 'Origen']]
+
+#Para resumen en excel
 ventas_mensual = df.groupby(['Unidad de Negocios', 'Mes'])['Importe'].sum().reset_index()
 ventas_mensual['Concepto'] = 'Ventas netas - ' + ventas_mensual['Unidad de Negocios']
 ventas_mensual = ventas_mensual[['Unidad de Negocios', 'Mes', 'Concepto', 'Importe']]
@@ -67,10 +69,12 @@ ventas_mensual['Numero'] = '     '
 
 #Gastos
 cursor.execute("""
-SELECT a.FechaCreacion, ai.Importe1, cc.Descripcion AS Concepto, cc.Numero, ai.TipoSaldo, a.Descripcion AS Detalle
+SELECT a.FechaCreacion, ai.Importe1, cc.Descripcion AS Concepto, cc.Numero, ai.TipoSaldo, a.Descripcion AS Detalle, f.RazonSocial, a.TipoOrigen
 FROM asientos a
 LEFT JOIN asientositems ai ON a.RecID = ai.IDAsiento
 LEFT JOIN cuentascontables cc ON cc.RecID = ai.IDCuentaContable
+LEFT JOIN compras comp ON a.IDOrigen = comp.RecID
+LEFT JOIN fiscal f ON comp.IDFiscal = f.RecID
 WHERE a.FechaCreacion >= '2024-01-01'
 """)
 data = cursor.fetchall()
@@ -79,7 +83,24 @@ gastos = pd.DataFrame(data, columns=columns)
 gastos['FechaCreacion'] = pd.to_datetime(gastos['FechaCreacion'])
 gastos['Concepto'] = gastos['Concepto'].str.strip().str.title()
 
-#Filtro segun cuentas (dejo anteriores en la que busqué)
+diccionario_tipos = {
+    1: "Recibo",
+    2: "ComprobanteFondo",
+    3: "Deposito",
+    4: "Pago",
+    5: "ChequePropio",
+    6: "ChequeTercero",
+    7: "Factura",
+    8: "Compra",
+    9: "Asiento Resumen",
+    10: "AsientoCierreResultado",
+    11: "AsientoCierrePatrimonio",
+    12: "Ajuste"}
+
+# Transformar la columna completa
+gastos['TipoOrigen'] = gastos['TipoOrigen'].map(diccionario_tipos)
+
+#Filtro segun cuentas (dejo comentadas anteriores en la que busqué)
 sueldos = gastos[gastos['Numero'].isin(['21301001', '21301002'])].copy()    # Esto es modulo de gastos
 #sueldos = gastos[gastos['Numero'].isin(['42101029', '42101023', '42201029', '42201023', '42301029', '42301023'])].copy()    ## Esto es modulo de egresos
 #sueldos = gastos[gastos['Numero'].isin(['42101029','42102023', '42201029', '42202023'])].copy()
@@ -94,11 +115,11 @@ sueldos.loc[sueldos['Concepto'] == 'Sueldos Y Jornales A Pagar Patogenicos', 'Un
 sueldos_mensual= sueldos.groupby(['Unidad de Negocios', 'Numero', 'Concepto', 'Mes'])['Importe1'].sum().reset_index()
 sueldos_mensual.rename(columns={'Importe1': 'Importe'}, inplace=True)
 sueldos_mensual['Numero'] = '                 '
-sueldos_detalle = sueldos[['FechaCreacion', 'Unidad de Negocios', 'Mes', 'Numero', 'Concepto',  'Detalle', 'Importe1']].copy()
+sueldos_detalle = sueldos[['FechaCreacion', 'Unidad de Negocios', 'Mes', 'Numero', 'Concepto',  'Detalle', 'Importe1', 'TipoOrigen']].copy()
 sueldos_detalle['Importe'] = sueldos_detalle['Importe1']
 sueldos_detalle['Origen'] = 'Sueldos'
 sueldos_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
-sueldos_detalle = sueldos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
+sueldos_detalle = sueldos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen', 'TipoOrigen']]
 
 #Calculo participacion de salarios sobre total mensual por unidad de denogcio
 total_mensual_sueldos = sueldos.groupby('Mes')['Importe1'].sum().reset_index()
@@ -147,28 +168,29 @@ egresos1 = gastos[gastos['Numero'].isin(['42201010', '42101010', '42101056', '42
 egresos2 = gastos[gastos['Concepto'].str.contains('Mantenimiento|mantenimiento')]
 egresos = pd.concat([egresos1, egresos2])
 
+egresos = egresos[egresos['TipoOrigen']=="Compra"].copy()   # Se toman los movimientos con TipoOrigen = 8 (Compras)
+
 egresos = egresos[~egresos['Detalle'].str.contains('INFL')].copy()
 egresos.loc[ egresos['Detalle'].str.contains('Nota de Crédito|Anulación', case=False, na=False),   'Importe1'] *= -1
 
-
-
 egresos['Mes'] = egresos["FechaCreacion"].dt.to_period("M")
-egresos_mensual = egresos.groupby(["Mes", "Numero", "Concepto"])["Importe1"].sum().reset_index()
+
 bsas_numeros = ["11501001", "42101001", "42101010", "42101056", "42101036", "42103011", "11504001"]
 salta_numeros = ["42201031", "42201001", "42201041", "42201010", "42201056", "42201036"]
-egresos_mensual.loc[egresos_mensual["Numero"].astype(str).isin(bsas_numeros), "Unidad de Negocios"] = "Bs.As."
-egresos_mensual.loc[egresos_mensual["Numero"].astype(str).isin(salta_numeros), "Unidad de Negocios"] = "Salta"
+
+egresos.loc[egresos["Numero"].astype(str).isin(bsas_numeros), "Unidad de Negocios"] = "Bs.As."
+egresos.loc[egresos["Numero"].astype(str).isin(salta_numeros), "Unidad de Negocios"] = "Salta"
+
+egresos_mensual = egresos.groupby([ "Unidad de Negocios", "Mes", "Numero", "Concepto"])["Importe1"].sum().reset_index()
 egresos_mensual.rename(columns={ 'Importe1': 'Importe'}, inplace=True)
 
-egresos_detalle = egresos[['FechaCreacion', 'Numero', 'Concepto', 'Detalle', 'Importe1']].copy()
-egresos_detalle['Mes'] = egresos['Mes']
-egresos_detalle.loc[egresos_detalle['Numero'].astype(str).isin(bsas_numeros), 'Unidad de Negocios'] = 'Bs.As.'
-egresos_detalle.loc[egresos_detalle['Numero'].astype(str).isin(salta_numeros), 'Unidad de Negocios'] = 'Salta'
+egresos_detalle = egresos[['Unidad de Negocios',  'FechaCreacion', 'Mes', 'Numero', 'Concepto', 'Detalle', 'RazonSocial', 'Importe1', 'TipoOrigen']].copy()
+
 egresos_detalle['Importe'] = egresos_detalle['Importe1']
 #egresos_detalle['Detalle'] = egresos_detalle['Descripcion']
 egresos_detalle['Origen'] = 'Compras'
 egresos_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
-egresos_detalle = egresos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen']]
+egresos_detalle = egresos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'RazonSocial', 'Origen', 'TipoOrigen']]
 
 datos = pd.concat([ventas_mensual, sueldos_mensual, cargas_sociales_final, sindicato_final, egresos_mensual])
 #Obtenog códigos que luego uso
