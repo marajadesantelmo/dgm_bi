@@ -50,6 +50,7 @@ illegal_chars = re.compile(r"[\000-\010]|[\013-\014]|[\016-\037]")
 for col in contactos.select_dtypes(include=["object"]).columns:
     contactos[col] = contactos[col].astype(str).apply(lambda x: illegal_chars.sub("", x))
 
+contactos = contactos[contactos['Tipo']=='PROVEEDOR']
 contactos.sort_values(by="Empresa", ascending=True, inplace=True)
 contactos.sort_values(by="FechaCreacion", ascending=False, inplace=True)
 
@@ -58,4 +59,4 @@ contacto_2025_ultima_compra = contactos[contactos["UltimaCompra"] >= "2025-10-01
 
 with pd.ExcelWriter("Informe proveedores 2026-06.xlsx", engine="openpyxl") as writer:
     contactos_2025_creacion.to_excel(writer, sheet_name="Proveedores nuevos segun alta", index=False)
-    contacto_2025_ultima_compra.to_excel(writer, sheet_name="Proveedores nuevos segun ultima compra", index=False)
+    contacto_2025_ultima_compra.to_excel(writer, sheet_name="Proveedores activos segun ultima compra", index=False)
