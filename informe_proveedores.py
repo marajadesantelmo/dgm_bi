@@ -53,6 +53,9 @@ for col in contactos.select_dtypes(include=["object"]).columns:
 contactos.sort_values(by="Empresa", ascending=True, inplace=True)
 contactos.sort_values(by="FechaCreacion", ascending=False, inplace=True)
 
-with pd.ExcelWriter("Informe proveedores 2026-06.xlsx", engine="openpyxl") as writer:
-    contactos.to_excel(writer, sheet_name="Todos los Contactos", index=False)
+contactos_2025_creacion = contactos[contactos["FechaCreacion"] >= "2025-10-01"]
+contacto_2025_ultima_compra = contactos[contactos["UltimaCompra"] >= "2025-10-01"]
 
+with pd.ExcelWriter("Informe proveedores 2026-06.xlsx", engine="openpyxl") as writer:
+    contactos_2025_creacion.to_excel(writer, sheet_name="Proveedores nuevos segun alta", index=False)
+    contacto_2025_ultima_compra.to_excel(writer, sheet_name="Proveedores nuevos segun ultima compra", index=False)
