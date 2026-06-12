@@ -22,6 +22,7 @@ SELECT
     c.Apellido, 
     c.Correo, 
     e.Empresa, 
+    ti.Valor AS Tipo,
     MAX(c.FechaCreacion) AS FechaCreacion,
     MAX(c.FechaModificacion) AS FechaModificacion, 
     MAX(comps.FechaCreacion) AS UltimaCompra
