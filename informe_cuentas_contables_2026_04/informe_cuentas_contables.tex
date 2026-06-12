@@ -33,7 +33,7 @@
 % Encabezado y pie de página
 \pagestyle{fancy}
 \fancyhf{}
-\rhead{\textcolor{azuloscuro}{\small Facundo Lastra --- DGM BI --- Documentación Técnica}}
+\rhead{\textcolor{azuloscuro}{\small Facundo Lastra - Documentación Técnica}}
 \lhead{\textcolor{azuloscuro}{\small Informe de Extracción y Procesamiento de datos}}
 \cfoot{\textcolor{gray}{\small Página \thepage}}
 \renewcommand{\headrulewidth}{0.3pt}
@@ -89,9 +89,6 @@ Resto & Otros \\
 \bottomrule
 \end{tabular}
 \end{center}
-\vspace{0.5em}
-
-\textbf{Nota:} El cliente ``Towards'' se reclasifica manualmente a ``Otros'' con independencia de la sucursal emisora. La unidad ``Otros'' sólo aparece en ventas; no tiene gastos asignados.
 
 % ─────────────────────────────────────────────
 \section{Ingresos --- Ventas Netas}
@@ -133,6 +130,9 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 \bottomrule
 \end{tabular}
 \end{center}
+\vspace{0.5em}
+
+\textbf{Filtro de saldo:} Se toman únicamente los movimientos con \texttt{TipoSaldo = 0} (debe), descartando los registros de haber. El mismo criterio se aplica a las cuentas de cargas sociales.
 
 % ---- 4.2 Cargas Sociales
 \subsection{Cargas Sociales}
@@ -226,6 +226,7 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 \end{center}
 
 % ─────────────────────────────────────────────
+\vspace{2\baselineskip}
 \section{Cuentas Contables --- Salta}
 
 \vspace{0.5em}
@@ -269,11 +270,13 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 
     \item \textbf{Prorrateo de cargas sociales y sindicato:} No surge de comprobantes directos por unidad de negocio, sino de una estimación basada en la proporción de sueldos. Si los porcentajes de cargas sociales difieren entre unidades, este método introduce una distorsión.
 
-    \item \textbf{La unidad ``Otros''} sólo aparece en el lado de ventas; no tiene gastos asignados, por lo que no genera una hoja propia en el Excel.
-
     \item \textbf{Período:} Todos los datos se filtran desde el \textbf{1 de enero de 2024} en adelante, tanto en facturación como en asientos contables.
 
     \item \textbf{Mantenimiento por descripción:} El script incluye adicionalmente todos los asientos cuya descripción de cuenta contenga la palabra ``Mantenimiento'', más allá de los números de cuenta explícitos. Esto puede capturar cuentas no previstas originalmente si se crean nuevas cuentas con ese nombre.
+
+    \item \textbf{Exclusión de ajustes por inflación:} Se eliminan del conjunto de egresos todos los asientos cuyo campo \texttt{Detalle} contenga la cadena \texttt{INFL}, evitando que los ajustes contables por inflación distorsionen el análisis de costos operativos.
+
+    \item \textbf{Inversión de signo en notas de crédito y anulaciones:} Los asientos correspondientes a notas de crédito o anulaciones de facturas aparecen registrados con signo positivo en la base de datos. El script invierte el signo del campo \texttt{Importe1} para estos registros (detectados cuando \texttt{Detalle} contiene ``Nota de Crédito'' o ``Anulación''), de modo que operen como una reducción del gasto.
 \end{enumerate}
 
 \end{document}

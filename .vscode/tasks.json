@@ -44,6 +44,28 @@
 				"informe_cuentas_contables.tex"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Compilar PDF informe_cuentas_contables_2026_04",
+			"type": "shell",
+			"command": "pdflatex",
+			"args": [
+				"-interaction=nonstopmode",
+				"-halt-on-error",
+				"informe_cuentas_contables_2026_04/informe_cuentas_contables.tex"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Recompilar PDF informe_cuentas_contables_2026_04",
+			"type": "shell",
+			"command": "pdflatex",
+			"args": [
+				"-interaction=nonstopmode",
+				"-halt-on-error",
+				"informe_cuentas_contables_2026_04/informe_cuentas_contables.tex"
+			],
+			"isBackground": false
 		}
 	]
 }
