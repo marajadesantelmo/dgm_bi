@@ -51,7 +51,6 @@ contactos = contactos[contactos['Tipo']=='PROVEEDOR']
 contactos.sort_values(by="Empresa", ascending=True, inplace=True)
 contactos.sort_values(by="FechaCreacion", ascending=False, inplace=True)
 
-contactos.drop(columns=[['Apellido', 'Correo', 'Nombre']], inplace=True)
 
 # Compras del último año por proveedor (facturas no anuladas)
 cursor.execute("""
