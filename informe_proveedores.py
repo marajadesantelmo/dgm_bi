@@ -22,8 +22,6 @@ SELECT
     c.Apellido, 
     c.Correo, 
     e.Empresa, 
-    ind.Valor AS Segmento, 
-    ti.Valor AS Tipo,
     MAX(c.FechaCreacion) AS FechaCreacion,
     MAX(c.FechaModificacion) AS FechaModificacion, 
     MAX(comps.FechaCreacion) AS UltimaCompra
@@ -37,8 +35,6 @@ LEFT JOIN compras comps
 LEFT JOIN tiposysub ti
     ON ti.IDRef = e.IDEmpresa
 GROUP BY 
-    c.Apellido, 
-    c.Correo, 
     e.Empresa
 """)
 
