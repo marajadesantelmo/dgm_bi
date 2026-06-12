@@ -48,9 +48,9 @@ for col in contactos.select_dtypes(include=["object"]).columns:
     contactos[col] = contactos[col].astype(str).apply(lambda x: illegal_chars.sub("", x))
 
 contactos = contactos[contactos['Tipo']=='PROVEEDOR']
+contactos.drop(columns=['Apellido', 'Correo', 'Nombre'], inplace=True)
 contactos.sort_values(by="Empresa", ascending=True, inplace=True)
 contactos.sort_values(by="FechaCreacion", ascending=False, inplace=True)
-
 
 # Compras del último año por proveedor (facturas no anuladas)
 cursor.execute("""
