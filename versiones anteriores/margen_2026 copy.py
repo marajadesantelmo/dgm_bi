@@ -7,14 +7,9 @@ import mysql.connector
 import pandas as pd
 from tokens import host, user, database
 
-# Cargar cuentas a considerar desde el plan de cuentas
-cuentas_contables = pd.read_excel('DGM - Cuentas Contables.xls')
-cuentas_contables.columns = ['Numero', 'Nivel', 'Tipo', 'Descripcion', 'FechaCreacion', 'FechaModificacion', 'TipoSaldo', 'Imputable', '_', 'Considerar']
-cuentas_si = cuentas_contables[cuentas_contables['Considerar'].str.upper().str.strip() == 'SI'].copy()
-cuentas_si['Numero'] = cuentas_si['Numero'].apply(lambda x: str(int(float(x))) if pd.notna(x) else '').str.strip()
-numeros_si = cuentas_si['Numero'].tolist()
-bsas_numeros = cuentas_si[cuentas_si['Descripcion'].str.contains('BSAS', na=False)]['Numero'].tolist()
-salta_numeros = cuentas_si[cuentas_si['Descripcion'].str.contains('PAT', na=False)]['Numero'].tolist()
+'C:\\Users\\ceo\\Documents\\Tableros Power BI'
+
+#dolar_cotizacion = pd.read_excel('cotizacion_dolar_procesada.xlsx') #Ver que hay que mejorar esto
 
 connection = mysql.connector.connect(
     host=host, 
@@ -168,7 +163,8 @@ sindicato_final['Numero'] = '                 '
 sindicato_detalle = sindicato_final[['Mes', 'Unidad de Negocios', 'Importe', 'Concepto']]
 
 
-egresos1 = gastos[gastos['Numero'].astype(str).isin(numeros_si)]
+egresos1 = gastos[gastos['Numero'].isin(['42201010', '42101010', '42101056', '42201031', '42101001', '42201001', '11504001', '11501001', '42201041',
+                                          '42202027', '42203009', '42202027', '42103009', '42102025'])]
 egresos2 = gastos[gastos['Concepto'].str.contains('Mantenimiento|mantenimiento')]
 egresos = pd.concat([egresos1, egresos2])
 
@@ -181,6 +177,8 @@ egresos.loc[ egresos['Detalle'].str.contains('Nota de Crédito|Anulación', case
 
 egresos['Mes'] = egresos["FechaCreacion"].dt.to_period("M")
 
+bsas_numeros = ["11501001", "42101001", "42101010", "42101056", "42101036", "42103011", "11504001", '42103009', '42102025']
+salta_numeros = ["42201031", "42201001", "42201041", "42201010", "42201056", "42201036", '42202027', '42203009']
 
 egresos.loc[egresos["Numero"].astype(str).isin(bsas_numeros), "Unidad de Negocios"] = "Bs.As."
 egresos.loc[egresos["Numero"].astype(str).isin(salta_numeros), "Unidad de Negocios"] = "Salta"
