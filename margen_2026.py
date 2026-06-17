@@ -8,7 +8,7 @@ import pandas as pd
 from tokens import host, user, database
 
 # Cargar cuentas a considerar desde el plan de cuentas
-cuentas_contables = pd.read_excel('DGM - Cuentas Contables.xls')
+cuentas_contables = pd.read_excel('DGM - Cuentas Contables.xlsx')
 cuentas_contables.columns = ['Numero', 'Nivel', 'Tipo', 'Descripcion', 'FechaCreacion', 'FechaModificacion', 'TipoSaldo', 'Imputable', '_', 'Considerar']
 cuentas_si = cuentas_contables[cuentas_contables['Considerar'].str.upper().str.strip() == 'SI'].copy()
 cuentas_si['Numero'] = cuentas_si['Numero'].apply(lambda x: str(int(float(x))) if pd.notna(x) else '').str.strip()
