@@ -75,6 +75,7 @@ AND f.FechaEmision >= '2024-01-01';
 data = cursor.fetchall()
 columns = [column[0] for column in cursor.description]
 df = pd.DataFrame(data, columns=columns)
+df['Detalle'] = df['Detalle'].apply(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
 #df.loc[df['Cliente'].str.contains('Towards', na=False), 'Unidad de Negocios'] = 'Otros'
 df['Mes'] = df['FechaEmision'].dt.to_period('M')
 ventas_detalle = df[['FechaEmision', 'Mes', 'Unidad de Negocios', 'Cliente', 'Importe', 'Detalle']].copy()
