@@ -41,7 +41,26 @@ SELECT
         WHEN t.NroSucursal = 4 THEN 'Salta'
         ELSE 'Otros'
     END AS `Unidad de Negocios`,
-    e.Empresa AS Cliente
+    e.Empresa AS Cliente,
+    CONCAT(
+        CASE f.Tipo
+            WHEN 0 THEN 'Factura'
+            WHEN 1 THEN 'Nota de Crédito'
+            WHEN 2 THEN 'Nota de Débito'
+            ELSE 'Comprobante'
+        END,
+        CASE WHEN f.TipoMultitipo IS NOT NULL
+             THEN CONCAT(' (',
+                 CASE f.TipoMultitipo
+                     WHEN 1 THEN 'A' WHEN 2 THEN 'B' WHEN 3 THEN 'C'
+                     WHEN 4 THEN 'E' WHEN 5 THEN 'M' ELSE ''
+                 END, ')')
+             ELSE '' END,
+        ' ',
+        LPAD(COALESCE(t.NroSucursal, 0), 4, '0'),
+        '-',
+        LPAD(COALESCE(f.Numero, 0), 8, '0')
+    ) AS Detalle
 FROM facturasitems fi
 JOIN facturas f ON fi.IdFactura = f.RecID
 LEFT JOIN monedacotizaciones mc ON f.IDCotizacionMoneda = mc.RecID
@@ -58,13 +77,13 @@ columns = [column[0] for column in cursor.description]
 df = pd.DataFrame(data, columns=columns)
 #df.loc[df['Cliente'].str.contains('Towards', na=False), 'Unidad de Negocios'] = 'Otros'
 df['Mes'] = df['FechaEmision'].dt.to_period('M')
-ventas_detalle = df[['FechaEmision', 'Mes', 'Unidad de Negocios', 'Cliente', 'Importe']].copy()
+ventas_detalle = df[['FechaEmision', 'Mes', 'Unidad de Negocios', 'Cliente', 'Importe', 'Detalle']].copy()
 ventas_detalle['Concepto'] = 'Ventas netas - ' + ventas_detalle['Unidad de Negocios']
 ventas_detalle['Numero'] = ''
 ventas_detalle['RazonSocial'] = ventas_detalle['Cliente']
 ventas_detalle['Origen'] = 'Ventas'
 ventas_detalle.rename(columns={'FechaEmision': 'Fecha'}, inplace=True)
-ventas_detalle = ventas_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'RazonSocial', 'Origen']]
+ventas_detalle = ventas_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'RazonSocial', 'Origen']]
 
 #Para resumen en excel
 ventas_mensual = df.groupby(['Unidad de Negocios', 'Mes'])['Importe'].sum().reset_index()
