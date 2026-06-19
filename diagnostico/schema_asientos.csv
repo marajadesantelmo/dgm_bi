@@ -1,0 +1,15 @@
+﻿Field,Type,Null,Key,Default,Extra
+RecID,varchar(12),NO,PRI,,
+ID,int(4) unsigned,NO,MUL,,auto_increment
+IDOrigen,varchar(12),YES,MUL,,
+Fecha,datetime,YES,,,
+FechaCreacion,datetime,YES,,,
+TipoOrigen,tinyint(1) unsigned,YES,,,
+TipoFondo,tinyint(1) unsigned,YES,,,
+Exportado,tinyint(1) unsigned,YES,,,
+IDEjercicio,varchar(12),YES,MUL,,
+IDFiscal,varchar(12),YES,MUL,,
+Descripcion,varchar(255),YES,,,
+Numero,int(4) unsigned,YES,MUL,,
+IDUsuarioCreacion,varchar(12),YES,MUL,,
+Auditoria,mediumtext,YES,,,

@@ -1,0 +1,10 @@
+﻿Field,Type,Null,Key,Default,Extra
+RecID,varchar(12),NO,PRI,,
+CotMoneda2,double,YES,,,
+CotMoneda3,double,YES,,,
+CotMoneda4,double,YES,,,
+CotMoneda5,double,YES,,,
+CotMoneda6,double,YES,,,
+FechaHora,datetime,YES,,,
+Tipo,tinyint(1) unsigned,YES,,,
+IDUsuario,varchar(12),YES,MUL,,
