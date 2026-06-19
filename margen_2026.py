@@ -136,6 +136,8 @@ sueldos = gastos[gastos['Numero'].isin(['21301001', '21301002'])].copy()    # Es
 
 #Tomo solo el debe
 sueldos = sueldos[sueldos['TipoSaldo'] == 0].copy()
+#Descarto asientos de cierre de cuentas patrimoniales (no son el devengamiento real del sueldo)
+sueldos = sueldos[~sueldos['Detalle'].str.contains('Asiento|ASTO DE', na=False)].copy()
 
 #Formato
 sueldos.loc[:, 'Mes'] = sueldos['FechaCreacion'].dt.to_period('M')
