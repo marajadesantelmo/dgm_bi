@@ -15,6 +15,8 @@ cuentas_si['Numero'] = cuentas_si['Numero'].apply(lambda x: str(int(float(x))) i
 numeros_si = cuentas_si['Numero'].tolist()
 bsas_numeros = cuentas_si[cuentas_si['Descripcion'].str.contains('BSAS', na=False)]['Numero'].tolist()
 salta_numeros = cuentas_si[cuentas_si['Descripcion'].str.contains('PAT', na=False)]['Numero'].tolist()
+# Cuentas patrimoniales (1.x.x.x) marcadas SI: se incluyen sin filtro de TipoOrigen
+cuentas_patrimoniales = cuentas_si[cuentas_si['Numero'].str.startswith('1')]['Numero'].tolist()
 
 connection = mysql.connector.connect(
     host=host, 
@@ -93,12 +95,20 @@ ventas_mensual = ventas_mensual[['Unidad de Negocios', 'Mes', 'Concepto', 'Impor
 ventas_mensual['Numero'] = '     '
 
 #Gastos
+# NOTA: se agrega join con monedacotizaciones via compras.IDCotizacionMoneda para capturar
+# compras en moneda extranjera (ej. Incol Corp en USD). Si la tabla compras no tiene ese campo,
+# el COALESCE hace que mc.CotMoneda2 = NULL y el factor quede en 1 (sin conversión).
+# Verificar con diagnostico_server.py si el campo existe.
 cursor.execute("""
-SELECT a.FechaCreacion, ai.Importe1, cc.Descripcion AS Concepto, cc.Numero, ai.TipoSaldo, a.Descripcion AS Detalle, f.RazonSocial, a.TipoOrigen
+SELECT a.FechaCreacion,
+       ai.Importe1 * COALESCE(mc.CotMoneda2, 1) AS Importe1,
+       cc.Descripcion AS Concepto, cc.Numero, ai.TipoSaldo,
+       a.Descripcion AS Detalle, f.RazonSocial, a.TipoOrigen
 FROM asientos a
 LEFT JOIN asientositems ai ON a.RecID = ai.IDAsiento
 LEFT JOIN cuentascontables cc ON cc.RecID = ai.IDCuentaContable
 LEFT JOIN compras comp ON a.IDOrigen = comp.RecID
+LEFT JOIN monedacotizaciones mc ON comp.IDCotizacionMoneda = mc.RecID
 LEFT JOIN fiscal f ON comp.IDFiscal = f.RecID
 WHERE a.FechaCreacion >= '2024-01-01'
 """)
@@ -193,8 +203,10 @@ egresos2 = gastos[gastos['Concepto'].str.contains('Mantenimiento|mantenimiento')
 egresos = pd.concat([egresos1, egresos2])
 
 egresos = egresos[
-    (egresos['TipoOrigen'] == "Compra") |                                                         # Se toman los movimientos con TipoOrigen = 8 (Compras)
-    ((egresos['Numero'] == '42102025') & (egresos['TipoOrigen'] == 'ComprobanteFondo'))].copy()   # Comprobantes de AySA que tienen otro TipoOrigen
+    (egresos['TipoOrigen'] == "Compra") |                                                          # Compras normales (TipoOrigen=8)
+    ((egresos['Numero'] == '42102025') & (egresos['TipoOrigen'] == 'ComprobanteFondo')) |          # AySA con otro TipoOrigen
+    (egresos['Numero'].astype(str).isin(cuentas_patrimoniales) & (egresos['TipoSaldo'] == 0))     # Cuentas patrimoniales (1.x.x.x) marcadas SI, solo debe
+].copy()
 
 egresos = egresos[~egresos['Detalle'].str.contains('INFL')].copy()
 egresos.loc[ egresos['Detalle'].str.contains('Nota de Crédito|Anulación', case=False, na=False),   'Importe1'] *= -1

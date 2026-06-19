@@ -388,7 +388,7 @@ else:
     yformat = ".1f"
 
 for name, y, color, dash, width, msize, fill in traces:
-    fig.add_trace(go.Scatter(
+    trace_kwargs = dict(
         x=x_labels,
         y=y,
         name=name,
@@ -396,9 +396,11 @@ for name, y, color, dash, width, msize, fill in traces:
         line=dict(color=color, width=width, shape="spline", dash=dash),
         marker=dict(color=color, size=msize, line=dict(color="#0e1a0e", width=1.5)),
         fill="tozeroy" if fill else "none",
-        fillcolor="rgba(224,160,32,0.07)" if fill and name == "Margen" else "none",
         hovertemplate=f"<b>%{{x}}</b><br>{name}: %{{y:,.1f}}<extra></extra>",
-    ))
+    )
+    if fill:
+        trace_kwargs["fillcolor"] = "rgba(224,160,32,0.07)"
+    fig.add_trace(go.Scatter(**trace_kwargs))
 
 fig.add_hline(
     y=0,
