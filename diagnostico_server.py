@@ -169,6 +169,47 @@ WHERE f.RazonSocial LIKE '%INCOL%' OR f.RazonSocial LIKE '%Incol%'
    OR f.RazonSocial LIKE '%TRIANGULO%' OR f.RazonSocial LIKE '%ISUZU%';
 """, "fiscal_empresas_testigo.csv", "Razones sociales de Incol, Triangulo, ISUZU en tabla fiscal")
 
+# ─── 10. Sueldos Salta julio 2025: ¿hay datos? ¿qué Detalle tienen? ──────────
+
+run_query("""
+SELECT
+    a.FechaCreacion,
+    ai.TipoSaldo,
+    ai.Importe1,
+    cc.Numero,
+    cc.Descripcion AS Concepto,
+    a.Descripcion   AS Detalle,
+    a.TipoOrigen
+FROM asientos a
+LEFT JOIN asientositems ai ON a.RecID = ai.IDAsiento
+LEFT JOIN cuentascontables cc ON cc.RecID = ai.IDCuentaContable
+WHERE cc.Numero IN ('21301001', '21301002')
+AND a.FechaCreacion >= '2025-06-01'
+AND a.FechaCreacion <  '2025-09-01'
+ORDER BY a.FechaCreacion, cc.Numero;
+""", "sueldos_salta_jun_ago_2025.csv",
+    "Sueldos cuentas 21301001/002 - jun/jul/ago 2025 (todos TipoSaldo, todos Detalle)")
+
+# ─── 11. Participación mensual de sueldos (resumen anual para detectar huecos) ──
+
+run_query("""
+SELECT
+    DATE_FORMAT(a.FechaCreacion, '%Y-%m') AS Mes,
+    cc.Numero,
+    cc.Descripcion AS Concepto,
+    ai.TipoSaldo,
+    COUNT(*)            AS Cant_Asientos,
+    SUM(ai.Importe1)    AS Total
+FROM asientos a
+LEFT JOIN asientositems ai ON a.RecID = ai.IDAsiento
+LEFT JOIN cuentascontables cc ON cc.RecID = ai.IDCuentaContable
+WHERE cc.Numero IN ('21301001', '21301002')
+AND a.FechaCreacion >= '2024-01-01'
+GROUP BY Mes, cc.Numero, cc.Descripcion, ai.TipoSaldo
+ORDER BY Mes, cc.Numero, ai.TipoSaldo;
+""", "sueldos_mensual_historico.csv",
+    "Resumen mensual histórico sueldos 21301001/002 desde 2024")
+
 cursor.close()
 connection.close()
 print("\n=== Diagnóstico completo. Revisar archivos en carpeta diagnostico/ ===")
