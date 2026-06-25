@@ -237,27 +237,27 @@ movimientos = pd.concat([
 movimientos = movimientos[movimientos['Unidad de Negocios'].isin(['Bs.As.', 'Salta'])].copy()
 movimientos.sort_values(['Unidad de Negocios', 'Fecha', 'Concepto', 'Numero'], inplace=True)
 
+#Paso a Salta este caso en particular
+movimientos.loc[movimientos['Detalle'] == "PAGO RECIBO DA", ['Unidad de Negocios', 'Concepto']] = ['Salta', '01-Otros DA']
 
 
 salta = datos[datos['Unidad de Negocios'] == 'Salta']
 bsas = datos[datos['Unidad de Negocios'] == 'Bs.As.']
+
+import re
 
 def add_prefix(concepto):
     if pd.isna(concepto):
         return concepto
     
     concepto_str = str(concepto)
-
-    if "Ventas netas" in concepto_str:
+    
+    if re.match(r'^\d{2}-', concepto_str):  # Ya tiene prefijo
+        return concepto_str
+    elif "Ventas netas" in concepto_str:
         return "00-" + concepto_str
-    
-    elif any(x in concepto_str for x in [
-        "Sueldos Y Jornales",
-        "Cargas Sociales",
-        "Sindicato"
-    ]):
+    elif any(x in concepto_str for x in ["Sueldos Y Jornales", "Cargas Sociales", "Sindicato"]):
         return "01-" + concepto_str
-    
     else:
         return "02-" + concepto_str
 
