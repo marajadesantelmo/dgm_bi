@@ -214,7 +214,7 @@ egresos.loc[egresos["Numero"].astype(str).isin(salta_numeros), "Unidad de Negoci
 # Hardcode: HERNANDEZ GUSTAVO OMAR opera en Salta aunque sus cuentas son BSAS
 mask_hernandez = egresos['RazonSocial'].str.upper().str.strip() == 'HERNANDEZ GUSTAVO OMAR'
 egresos.loc[mask_hernandez, 'Unidad de Negocios'] = 'Salta'
-egresos.loc[mask_hernandez, 'Concepto'] = egresos.loc[mask_hernandez, 'Concepto'].str.replace('Pat ', 'Bsas ', regex=False)
+egresos.loc[mask_hernandez, 'Concepto'] = egresos.loc[mask_hernandez, 'Concepto'].str.replace('Bsas ', 'Pat ', regex=False)
 
 # Hardcode: GOBIERNO DE LA CIUDAD DE BUENOS AIRES asignado a Salta → concepto Pat en lugar de Bsas
 mask_gcba = (egresos['RazonSocial'].str.upper().str.strip() == 'GOBIERNO DE LA CIUDAD DE BUENOS AIRES') & (egresos['Unidad de Negocios'] == 'Salta')
