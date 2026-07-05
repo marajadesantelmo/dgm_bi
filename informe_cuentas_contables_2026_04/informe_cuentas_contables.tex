@@ -64,7 +64,7 @@ El proceso comprende los siguientes pasos:
 \begin{enumerate}
     \item \textbf{Conexión a la base de datos} mediante credenciales almacenadas.
     \item \textbf{Extracción de ventas} desde el módulo de facturación, con clasificación por unidad de negocio.
-    \item \textbf{Extracción de gastos} desde el libro diario (asientos contables), clasificados en cuatro categorías: sueldos, cargas sociales, aportes sindicales y otros egresos operativos.
+    \item \textbf{Extracción de gastos} desde el libro diario (asientos contables), clasificados en tres categorías: sueldos, cargas sociales (que incluyen los aportes sindicales) y otros egresos operativos.
     \item \textbf{Consolidación} de ingresos y egresos en tablas pivoteadas por mes.
     \item \textbf{Exportación a Excel} con una hoja por unidad de negocio: \emph{Bs.As.} y \emph{Salta}.
     \item \textbf{Visualización de resultados en PowerBI} a través de un dashboard que consume el mismo archivo Excel.
@@ -115,7 +115,7 @@ Los gastos se extraen del libro diario a través de las tablas \texttt{asientos}
 % ---- 4.1 Sueldos
 \subsection{Sueldos y Jornales}
 
-Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
+Los sueldos se toman de las \textbf{cuentas de resultado} (egresos), que reflejan el gasto \emph{devengado} en el mes en que se genera. Anteriormente se usaban las cuentas patrimoniales ``a pagar'' (21301001/002), que registran el \emph{pago} del pasivo y no el devengamiento, introduciendo un desfasaje de fecha. Cada cuenta de resultado ya viene asignada a su unidad de negocio.
 
 \vspace{0.5em}
 \begin{center}
@@ -124,18 +124,27 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 \rowcolor{azulclaro}
 \textbf{Número de Cuenta} & \textbf{Descripción} \\
 \midrule
-21301001 & Sueldos y Jornales a Pagar --- Bs.As. \\
+42101029 & Bs.As.\ Sueldos (costo del servicio) \\
 \rowcolor{grisclaro}
-21301002 & Sueldos y Jornales a Pagar --- Patogénicos (Salta) \\
+42102023 & Bs.As.\ Sueldos (administración) \\
+42201029 & Salta / Patogénicos --- Sueldos (costo del servicio) \\
+\rowcolor{grisclaro}
+42202023 & Salta / Patogénicos --- Sueldos (administración) \\
 \bottomrule
 \end{tabular}
 \end{center}
 \vspace{0.5em}
 
-\textbf{Filtro de saldo:} Se toman únicamente los movimientos con \texttt{TipoSaldo = 0} (debe), descartando los registros de haber. El mismo criterio se aplica a las cuentas de cargas sociales.
+\textbf{Fecha de imputación:} Se usa la fecha contable del asiento (\texttt{Fecha}), correspondiente al mes de devengamiento (fin de mes), en lugar de la fecha de carga (\texttt{FechaCreacion}), que suele registrarse con varios meses de atraso.
+
+\textbf{Limpieza de movimientos:} De estas cuentas se descartan los asientos de cierre de resultado, los ajustes por inflación (descripción con ``INFL'') y las provisiones que luego se reversan. Por cada mes y cuenta se toma el movimiento base (debe menos haber); si no existe un movimiento base pero sí una provisión no reversada, se utiliza esa provisión como devengamiento del mes.
+
+\textbf{Enfoque híbrido:} Como las cuentas de resultado se cargan con demora, los últimos meses pueden no estar disponibles. Para los meses posteriores al último con datos de egreso (\emph{cutoff} calculado dinámicamente en cada corrida), el script recurre al método patrimonial anterior (cuentas 21301001/002, tomando el debe), garantizando que el reporte no quede con meses recientes en cero.
 
 % ---- 4.2 Cargas Sociales
-\subsection{Cargas Sociales}
+\subsection{Cargas Sociales (incluyen aportes sindicales)}
+
+Análogamente, las cargas sociales se toman de las cuentas de resultado, ya desagregadas por unidad de negocio:
 
 \vspace{0.5em}
 \begin{center}
@@ -144,48 +153,24 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 \rowcolor{azulclaro}
 \textbf{Número de Cuenta} & \textbf{Descripción} \\
 \midrule
-21302001 & Cargas sociales \\
+42101009 & Bs.As.\ Cargas Sociales (costo del servicio) \\
 \rowcolor{grisclaro}
-21302002 & Cargas sociales \\
-21302004 & Cargas sociales \\
+42102005 & Bs.As.\ Cargas Sociales (administración) \\
+42201009 & Salta / Patogénicos --- Cargas Sociales (costo del servicio) \\
 \rowcolor{grisclaro}
-21302005 & Cargas sociales \\
-21302006 & Cargas sociales \\
+42202005 & Salta / Patogénicos --- Cargas Sociales (administración) \\
 \bottomrule
 \end{tabular}
 \end{center}
 \vspace{0.5em}
 
-\textbf{Criterio de distribución:} Estas cuentas no están desagregadas por unidad de negocio en la contabilidad. El script las distribuye usando la \textbf{proporción de sueldos} de cada unidad sobre el total mensual bajo el supuesto de que las cargas sociales se generan en la misma proporción que los sueldos brutos de cada unidad de negocio.
+Los \textbf{aportes sindicales} quedan comprendidos dentro de las cargas sociales --- el plan de cuentas de resultado no tiene una cuenta de sindicato separada --- por lo que ya no se reportan como línea independiente. Se aplican los mismos criterios de fecha, limpieza y fallback que en los sueldos.
+
+\textbf{Distribución en meses de fallback:} En los meses que usan el método patrimonial, las cargas sociales y sindicales (cuentas 21302xxx) no están desagregadas por unidad de negocio. En esos meses se distribuyen usando la \textbf{proporción de sueldos} de cada unidad:
 
 \[
 \text{Cargas Sociales}_{UdN} = \text{Total Cargas Sociales} \times \frac{\text{Sueldos}_{UdN}}{\text{Total Sueldos}}
 \]
-
-
-
-% ---- 4.3 Sindicato
-\subsection{Aportes Sindicales}
-
-\vspace{0.5em}
-\begin{center}
-\begin{tabular}{ll}
-\toprule
-\rowcolor{azulclaro}
-\textbf{Número de Cuenta} & \textbf{Descripción} \\
-\midrule
-21302007 & Cuota / aporte sindical \\
-\rowcolor{grisclaro}
-21302008 & Cuota / aporte sindical \\
-21302009 & Cuota / aporte sindical \\
-\rowcolor{grisclaro}
-21302010 & Cuota / aporte sindical \\
-\bottomrule
-\end{tabular}
-\end{center}
-\vspace{0.5em}
-
-\textbf{Criterio de distribución:} Idéntico al de cargas sociales --- se distribuye usando la participación de sueldos por unidad de negocio bajo el supuesto de que los aportes sindicales se generan en la misma proporción que los sueldos brutos de cada unidad de negocio.
 
 % ─────────────────────────────────────────────
 \section{Cuentas Contables --- Buenos Aires}
@@ -207,11 +192,9 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 \endfoot
 \rowcolor{verdeclaro}
 & Ventas netas --- Bs.As. \\
-21301001 & Sueldos y Jornales a Pagar Bs.As. \\
+42101029 / 42102023 & Sueldos --- Bs.As. \textnormal{\small (devengado)} \\
 \rowcolor{grisclaro}
-& Sindicato --- Bs.As. \textnormal{\small (prorrateo por sueldos)} \\
-& Cargas Sociales --- Bs.As. \textnormal{\small (prorrateo por sueldos)} \\
-\rowcolor{grisclaro}
+42101009 / 42102005 & Cargas Sociales --- Bs.As. \textnormal{\small (incluye sindicato)} \\
 11501001 & Bolsas \\
 42101001 & Bs.As.\ Alquileres y Expensas \\
 \rowcolor{grisclaro}
@@ -246,11 +229,9 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 \endfoot
 \rowcolor{verdeclaro}
 & Ventas netas --- Salta \\
-21301002 & Sueldos y Jornales a Pagar Patogénicos \\
+42201029 / 42202023 & Sueldos --- Salta \textnormal{\small (devengado)} \\
 \rowcolor{grisclaro}
-& Sindicato --- Salta \textnormal{\small (prorrateo por sueldos)} \\
-& Cargas Sociales --- Salta \textnormal{\small (prorrateo por sueldos)} \\
-\rowcolor{grisclaro}
+42201009 / 42202005 & Cargas Sociales --- Salta \textnormal{\small (incluye sindicato)} \\
 42201031 & Pat.\ Mantenimiento de Maquinarias \\
 42201001 & Pat.\ Alquileres y Expensas \\
 \rowcolor{grisclaro}
@@ -268,13 +249,17 @@ Las cuentas de sueldos están directamente asignadas a cada unidad de negocio.
 \begin{enumerate}
     \item \textbf{Cuentas del Activo (11xxxxxx) como egresos:} Las cuentas \texttt{11501001} (Bolsas) y \texttt{11504001} (Cajas de Cartón) pertenecen al rango de Activo Corriente (inventario/insumos). Se incluyen como egresos del período. Se recomienda verificar que los movimientos registrados correspondan efectivamente a consumos y no a compras que deben permanecer activadas.
 
-    \item \textbf{Prorrateo de cargas sociales y sindicato:} No surge de comprobantes directos por unidad de negocio, sino de una estimación basada en la proporción de sueldos. Si los porcentajes de cargas sociales difieren entre unidades, este método introduce una distorsión.
+    \item \textbf{Sueldos devengados vs.\ pagados:} A partir de esta versión los sueldos y cargas sociales se toman de cuentas de resultado (devengado, por fecha contable) y no de las cuentas patrimoniales ``a pagar'' (pago del pasivo). El monto resultante es algo mayor porque refleja el sueldo \emph{bruto} devengado, mientras que las cuentas ``a pagar'' registran el neto, pero la imputación temporal es más precisa.
+
+    \item \textbf{Cutoff dinámico y fallback:} Las cuentas de resultado se cargan con demora de varios meses. El script detecta automáticamente el último mes con datos de egreso y, para los meses posteriores, usa el método patrimonial anterior. En consecuencia, los meses más recientes son estimaciones que se recalculan (y afinan) en cada corrida a medida que se cargan los asientos definitivos.
+
+    \item \textbf{Prorrateo de cargas sociales y sindicato:} Sólo aplica a los \textbf{meses de fallback}. En esos meses, las cargas no surgen de comprobantes directos por unidad de negocio sino de una estimación basada en la proporción de sueldos; si los porcentajes de cargas difieren entre unidades, este método introduce una distorsión. En los meses tomados de cuentas de resultado, en cambio, la desagregación por unidad es directa.
 
     \item \textbf{Período:} Todos los datos se filtran desde el \textbf{1 de enero de 2024} en adelante, tanto en facturación como en asientos contables.
 
     \item \textbf{Mantenimiento por descripción:} El script incluye adicionalmente todos los asientos cuya descripción de cuenta contenga la palabra ``Mantenimiento'', más allá de los números de cuenta explícitos. Esto puede capturar cuentas no previstas originalmente si se crean nuevas cuentas con ese nombre.
 
-    \item \textbf{Exclusión de ajustes por inflación:} Se eliminan del conjunto de egresos todos los asientos cuyo campo \texttt{Detalle} contenga la cadena \texttt{INFL}, evitando que los ajustes contables por inflación distorsionen el análisis de costos operativos.
+    \item \textbf{Exclusión de ajustes por inflación:} Se eliminan tanto del conjunto de egresos como de las cuentas de sueldos y cargas todos los asientos cuyo campo \texttt{Detalle} contenga la cadena \texttt{INFL}, evitando que los ajustes contables por inflación distorsionen el análisis de costos operativos.
 
     \item \textbf{Inversión de signo en notas de crédito y anulaciones:} Los asientos correspondientes a notas de crédito o anulaciones de facturas aparecen registrados con signo positivo en la base de datos. El script invierte el signo del campo \texttt{Importe1} para estos registros (detectados cuando \texttt{Detalle} contiene ``Nota de Crédito'' o ``Anulación''), de modo que operen como una reducción del gasto.
 \end{enumerate}

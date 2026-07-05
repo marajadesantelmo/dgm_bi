@@ -98,7 +98,7 @@ ventas_mensual['Numero'] = '     '
 #Gastos
 # Importe1 en asientositems ya está en ARS: el sistema convierte al registrar la compra.
 cursor.execute("""
-SELECT a.FechaCreacion, ai.Importe1, cc.Descripcion AS Concepto, cc.Numero, ai.TipoSaldo, a.Descripcion AS Detalle, f.RazonSocial, a.TipoOrigen
+SELECT a.FechaCreacion, a.Fecha AS FechaContable, ai.Importe1, cc.Descripcion AS Concepto, cc.Numero, ai.TipoSaldo, a.Descripcion AS Detalle, f.RazonSocial, a.TipoOrigen
 FROM asientos a
 LEFT JOIN asientositems ai ON a.RecID = ai.IDAsiento
 LEFT JOIN cuentascontables cc ON cc.RecID = ai.IDCuentaContable
@@ -129,74 +129,148 @@ diccionario_tipos = {
 # Transformar la columna completa
 gastos['TipoOrigen'] = gastos['TipoOrigen'].map(diccionario_tipos)
 
-#Filtro segun cuentas (dejo comentadas anteriores en la que busqué)
-sueldos = gastos[gastos['Numero'].isin(['21301001', '21301002'])].copy()    # Esto es modulo de gastos
-#sueldos = gastos[gastos['Numero'].isin(['42101029', '42101023', '42201029', '42201023', '42301029', '42301023'])].copy()    ## Esto es modulo de egresos
-#sueldos = gastos[gastos['Numero'].isin(['42101029','42102023', '42201029', '42202023'])].copy()
+# ══════════════════════════════════════════════════════════════════════════════
+# RRHH (Sueldos + Cargas Sociales) — enfoque HÍBRIDO
+#   • Meses cerrados: cuentas de EGRESO 4.2.x (cuentas de resultado, devengado por
+#     a.Fecha), tomando el movimiento "base" y excluyendo ajustes por inflación,
+#     provisiones que luego se reversan, y asientos de cierre de resultado.
+#   • Meses recientes aún no cargados en las cuentas de resultado: fallback al
+#     método patrimonial (cuentas 2.1.3 "a pagar"), como se venía haciendo.
+#   El SINDICATO se fusiona dentro de Cargas Sociales (el modelo de egreso no tiene
+#   una cuenta de sindicato separada).
+# ══════════════════════════════════════════════════════════════════════════════
+gastos['FechaContable'] = pd.to_datetime(gastos['FechaContable'])
 
-#Tomo solo el debe
-sueldos = sueldos[sueldos['TipoSaldo'] == 0].copy()
-#Descarto asientos de cierre de cuentas patrimoniales (no son el devengamiento real del sueldo)
-sueldos = sueldos[~sueldos['Detalle'].str.contains('Asiento|ASTO DE', na=False)].copy()
+# Cuentas de egreso RRHH (regional ya incorporado: 421=Bs.As., 422=Salta)
+sueldos_eg_ctas = ['42101029', '42102023', '42201029', '42202023']   # BSAS/PAT SUELDOS (costo svc + admin)
+cargas_eg_ctas  = ['42101009', '42102005', '42201009', '42202005']   # BSAS/PAT CARGAS SOCIALES (costo svc + admin)
+rrhh_eg_ctas = sueldos_eg_ctas + cargas_eg_ctas
 
-#Formato
-sueldos.loc[:, 'Mes'] = sueldos['FechaCreacion'].dt.to_period('M')
-sueldos.loc[sueldos['Concepto'] == 'Sueldos Y Jornales A Pagar Bs As', 'Unidad de Negocios'] = 'Bs.As.'
-sueldos.loc[sueldos['Concepto'] == 'Sueldos Y Jornales A Pagar Patogenicos', 'Unidad de Negocios'] = 'Salta'
-sueldos_mensual= sueldos.groupby(['Unidad de Negocios', 'Numero', 'Concepto', 'Mes'])['Importe1'].sum().reset_index()
-sueldos_mensual.rename(columns={'Importe1': 'Importe'}, inplace=True)
+def _categoria_rrhh(row):
+    # Clasifica cada movimiento para separar el sueldo real del "ruido" contable.
+    if row['TipoOrigen'] in ('AsientoCierreResultado', 'AsientoCierrePatrimonio'):
+        return 'cierre'
+    det = str(row['Detalle']).upper()
+    if 'INFL' in det:   return 'infl'        # ajuste por inflación
+    if 'REVERS' in det: return 'reversion'   # reversión de provisión/ajuste
+    if 'PROV' in det:   return 'provision'   # provisión (a veces es el sueldo real, a veces duplicado)
+    return 'base'
+
+rrhh_eg = gastos[gastos['Numero'].astype(str).isin(rrhh_eg_ctas)].copy()
+rrhh_eg['Numero'] = rrhh_eg['Numero'].astype(str)
+rrhh_eg = rrhh_eg[rrhh_eg['FechaContable'].notna()].copy()
+rrhh_eg['Categoria'] = rrhh_eg.apply(_categoria_rrhh, axis=1)
+rrhh_eg['Firma'] = rrhh_eg['Importe1'] * rrhh_eg['TipoSaldo'].map({0: 1, 1: -1})
+rrhh_eg['Mes'] = rrhh_eg['FechaContable'].dt.to_period('M')
+rrhh_eg['Unidad de Negocios'] = rrhh_eg['Numero'].apply(lambda n: 'Bs.As.' if n.startswith('421') else 'Salta')
+rrhh_eg['Tipo'] = rrhh_eg['Numero'].apply(lambda n: 'Sueldos' if n in sueldos_eg_ctas else 'Cargas Sociales')
+
+# Nos quedamos con 'base' y 'provision' (descartamos inflación, cierre y reversión).
+# Regla por (cuenta, mes): usar la suma 'base'; si esa suma es 0, usar la 'provision'
+# (mes en que la provisión ES el devengamiento real y no fue reversada).
+rrhh_keep = rrhh_eg[~rrhh_eg['Categoria'].isin(['infl', 'cierre', 'reversion'])].copy()
+_base_sum = (rrhh_keep[rrhh_keep['Categoria'] == 'base']
+             .groupby(['Numero', 'Mes'])['Firma'].sum())
+_grupos_con_base = set(_base_sum[_base_sum != 0].index)   # claves (Numero, Mes) con base real
+
+def _usar_movimiento(row):
+    clave = (row['Numero'], row['Mes'])
+    if row['Categoria'] == 'base':
+        return clave in _grupos_con_base
+    return clave not in _grupos_con_base   # provisión: sólo si no hay base ese mes
+
+rrhh_keep = rrhh_keep[rrhh_keep.apply(_usar_movimiento, axis=1)].copy()
+
+# Cutoff dinámico: último mes con sueldos de egreso efectivamente cargados
+cutoff = rrhh_keep.loc[rrhh_keep['Tipo'] == 'Sueldos', 'Mes'].max()
+
+# ── Resumen y detalle EGRESO (meses entre 2024-01 y el cutoff) ───────────────
+_mes_min = pd.Period('2024-01', freq='M')
+rrhh_eg_cerr = rrhh_keep[(rrhh_keep['Mes'] <= cutoff) & (rrhh_keep['Mes'] >= _mes_min)].copy()
+rrhh_eg_cerr['Concepto'] = rrhh_eg_cerr['Tipo'] + ' - ' + rrhh_eg_cerr['Unidad de Negocios']
+
+rrhh_eg_mes = (rrhh_eg_cerr.groupby(['Unidad de Negocios', 'Tipo', 'Concepto', 'Mes'])['Firma']
+               .sum().reset_index().rename(columns={'Firma': 'Importe'}))
+
+rrhh_eg_det = rrhh_eg_cerr[['Unidad de Negocios', 'FechaContable', 'Mes', 'Concepto', 'Numero',
+                            'Firma', 'Detalle', 'TipoOrigen']].copy()
+rrhh_eg_det.rename(columns={'FechaContable': 'Fecha', 'Firma': 'Importe'}, inplace=True)
+rrhh_eg_det['Origen'] = 'Sueldos'
+
+# ── Fallback PATRIMONIAL (meses > cutoff) ────────────────────────────────────
+patr = gastos[gastos['Numero'].astype(str).isin(['21301001', '21301002'])].copy()
+patr['Numero'] = patr['Numero'].astype(str)
+patr = patr[(patr['TipoSaldo'] == 0) & (~patr['Detalle'].str.contains('Asiento|ASTO DE', na=False))].copy()
+patr['Mes'] = patr['FechaCreacion'].dt.to_period('M')
+patr = patr[patr['Mes'] > cutoff].copy()
+patr['Unidad de Negocios'] = patr['Numero'].map({'21301001': 'Bs.As.', '21301002': 'Salta'})
+
+# Sueldos patrimoniales (fallback)
+patr_sueldos = patr.groupby(['Unidad de Negocios', 'Mes'])['Importe1'].sum().reset_index()
+patr_sueldos.rename(columns={'Importe1': 'Importe'}, inplace=True)
+patr_sueldos['Tipo'] = 'Sueldos'
+
+# Participación de sueldos por unidad para prorratear cargas + sindicato
+_tot_mes = patr_sueldos.groupby('Mes')['Importe'].sum().rename('TotMes').reset_index()
+_part = patr_sueldos.merge(_tot_mes, on='Mes', how='left')
+_part['Participacion'] = _part['Importe'] / _part['TotMes']
+
+# Cargas sociales + sindicato patrimoniales (fallback), prorrateados por participación
+cs_ctas = ['21302001', '21302002', '21302004', '21302005', '21302006',
+           '21302007', '21302008', '21302009', '21302010']
+cs = gastos[gastos['Numero'].astype(str).isin(cs_ctas) & (gastos['TipoSaldo'] == 0)].copy()
+cs['Mes'] = cs['FechaCreacion'].dt.to_period('M')
+cs = cs[cs['Mes'] > cutoff]
+cs_tot = cs.groupby('Mes')['Importe1'].sum().rename('CargasTot').reset_index()
+patr_cargas = _part.merge(cs_tot, on='Mes', how='left')
+patr_cargas['Importe'] = patr_cargas['CargasTot'].fillna(0) * patr_cargas['Participacion']
+patr_cargas['Tipo'] = 'Cargas Sociales'
+patr_cargas['Concepto'] = 'Cargas Sociales - ' + patr_cargas['Unidad de Negocios']
+
+patr_mes = pd.concat([
+    patr_sueldos[['Unidad de Negocios', 'Mes', 'Importe', 'Tipo']],
+    patr_cargas[['Unidad de Negocios', 'Mes', 'Importe', 'Tipo']],
+], ignore_index=True)
+patr_mes['Concepto'] = patr_mes['Tipo'] + ' - ' + patr_mes['Unidad de Negocios']
+
+# Detalle patrimonial (fallback)
+patr_sueldos_det = patr[['Unidad de Negocios', 'FechaCreacion', 'Mes', 'Numero', 'Detalle', 'Importe1', 'TipoOrigen']].copy()
+patr_sueldos_det.rename(columns={'FechaCreacion': 'Fecha', 'Importe1': 'Importe'}, inplace=True)
+patr_sueldos_det['Concepto'] = 'Sueldos - ' + patr_sueldos_det['Unidad de Negocios']
+patr_sueldos_det['Origen'] = 'Sueldos'
+patr_cargas_det = patr_cargas[['Unidad de Negocios', 'Mes', 'Importe', 'Concepto']].copy()
+
+# ── Combinación EGRESO (cerrado) + PATRIMONIO (fallback) ─────────────────────
+sueldos_mensual = pd.concat([
+    rrhh_eg_mes[rrhh_eg_mes['Tipo'] == 'Sueldos'][['Unidad de Negocios', 'Concepto', 'Mes', 'Importe']],
+    patr_mes[patr_mes['Tipo'] == 'Sueldos'][['Unidad de Negocios', 'Concepto', 'Mes', 'Importe']],
+], ignore_index=True)
 sueldos_mensual['Numero'] = '                 '
-sueldos_detalle = sueldos[['FechaCreacion', 'Unidad de Negocios', 'Mes', 'Numero', 'Concepto',  'Detalle', 'Importe1', 'TipoOrigen']].copy()
-sueldos_detalle['Importe'] = sueldos_detalle['Importe1']
-sueldos_detalle['Origen'] = 'Sueldos'
-sueldos_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
+
+cargas_sociales_final = pd.concat([
+    rrhh_eg_mes[rrhh_eg_mes['Tipo'] == 'Cargas Sociales'][['Unidad de Negocios', 'Concepto', 'Mes', 'Importe']],
+    patr_mes[patr_mes['Tipo'] == 'Cargas Sociales'][['Unidad de Negocios', 'Concepto', 'Mes', 'Importe']],
+], ignore_index=True)
+cargas_sociales_final['Numero'] = '                 '
+
+sueldos_detalle = pd.concat([
+    rrhh_eg_det[rrhh_eg_det['Concepto'].str.startswith('Sueldos')],
+    patr_sueldos_det,
+], ignore_index=True)
 sueldos_detalle = sueldos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen', 'TipoOrigen']]
 
-#Calculo participacion de salarios sobre total mensual por unidad de denogcio
-total_mensual_sueldos = sueldos.groupby('Mes')['Importe1'].sum().reset_index()
-total_mensual_sueldos.rename(columns={'Importe1': 'Total Mensual'}, inplace=True)
-sueldos_mensual_unegocio = sueldos_mensual.merge(total_mensual_sueldos, on='Mes', how='left')
-sueldos_mensual_unegocio.rename(columns={'Importe1': 'Importe'}, inplace=True)
-sueldos_mensual_unegocio['Participacion'] = sueldos_mensual_unegocio['Importe'] / sueldos_mensual_unegocio['Total Mensual']
-sueldos_mensual_unegocio = sueldos_mensual_unegocio[['Concepto', 'Mes', 'Importe', 'Participacion']]
-sueldos_mensual_unegocio.loc[sueldos_mensual_unegocio['Concepto'] == 'Sueldos Y Jornales A Pagar Bs As', 'Unidad de Negocios'] = 'Bs.As.'
-sueldos_mensual_unegocio.loc[sueldos_mensual_unegocio['Concepto'] == 'Sueldos Y Jornales A Pagar Patogenicos', 'Unidad de Negocios'] = 'Salta'
-sueldos_mensual_unegocio = sueldos_mensual_unegocio[['Mes', 'Unidad de Negocios', 'Participacion']]
-
-cargas_sociales = gastos[gastos['Numero'].isin(['21302001', '21302002', '21302004', '21302005', '21302006'])].copy()
-cargas_sociales = cargas_sociales[cargas_sociales['TipoSaldo'] == 0]
-cargas_sociales['Mes'] = cargas_sociales["FechaCreacion"].dt.to_period("M")
-cargas_sociales_mensual = cargas_sociales.groupby(cargas_sociales["Mes"])["Importe1"].sum().reset_index()
-cargas_sociales_mensual.columns = ['Mes', 'Cargas Sociales Total']
-cargas_sociales_mensual_unegocio = sueldos_mensual_unegocio.merge(cargas_sociales_mensual, on='Mes', how='left')
-cargas_sociales_mensual_unegocio['Importe'] = (cargas_sociales_mensual_unegocio['Cargas Sociales Total'] * cargas_sociales_mensual_unegocio['Participacion'])
-cargas_sociales_mensual_unegocio['Concepto'] = 'Cargas Sociales - ' + cargas_sociales_mensual_unegocio['Unidad de Negocios']
-cargas_sociales_final = cargas_sociales_mensual_unegocio[['Unidad de Negocios', 'Mes', 'Concepto', 'Importe']]
-cargas_sociales_final['Numero'] = '                 '
-cargas_sociales_detalle = cargas_sociales_final[['Mes', 'Unidad de Negocios', 'Importe', 'Concepto']]
-
-#cargas_sociales_detalle = cargas_sociales.merge(sueldos_mensual_unegocio, on='Mes', how='left')
-#cargas_sociales.rename(columns={'FechaCreacion': 'Fecha', 
-#                                'Importe1': 'Importe', 
-#                                'Descripcion': 'Concepto'}, inplace=True)
-#cargas_sociales_detalle = cargas_sociales[['Fecha', 'Mes', 'Concepto', 'Numero', 'Importe']].copy()
-#cargas_sociales_detalle['Unidad de Negocios'] = "-"#
-
-sindicato = gastos[gastos['Numero'].isin(['21302007', '21302008', '21302009', '21302010'])].copy()
-sindicato['Mes'] = sindicato["FechaCreacion"].dt.to_period("M")
-sindicato_mensual = sindicato.groupby(sindicato["Mes"])["Importe1"].sum().reset_index()
-sindicato_mensual.columns = ['Mes', 'Sindicato Total']
-sindicato_mensual_unegocio = sueldos_mensual_unegocio.merge(sindicato_mensual, on='Mes', how='left')
-sindicato_mensual_unegocio['Importe'] = (sindicato_mensual_unegocio['Sindicato Total'] * sindicato_mensual_unegocio['Participacion'])
-sindicato_mensual_unegocio['Concepto'] = 'Sindicato - ' + sindicato_mensual_unegocio['Unidad de Negocios']
-sindicato_final = sindicato_mensual_unegocio[['Unidad de Negocios', 'Mes', 'Concepto', 'Importe']]
-sindicato_final['Numero'] = '                 '
-sindicato_detalle = sindicato_final[['Mes', 'Unidad de Negocios', 'Importe', 'Concepto']]
+cargas_sociales_detalle = pd.concat([
+    rrhh_eg_det[rrhh_eg_det['Concepto'].str.startswith('Cargas Sociales')][['Mes', 'Unidad de Negocios', 'Importe', 'Concepto']],
+    patr_cargas_det,
+], ignore_index=True)
 
 
 egresos1 = gastos[gastos['Numero'].astype(str).isin(numeros_si)]
 egresos2 = gastos[gastos['Concepto'].str.contains('Mantenimiento|mantenimiento')]
 egresos = pd.concat([egresos1, egresos2])
+# Excluir las cuentas de sueldos/cargas de egreso: ya se computan en el bloque RRHH
+# (evita doble conteo, ya que estas cuentas están marcadas 'Si' en el plan de cuentas)
+egresos = egresos[~egresos['Numero'].astype(str).isin(rrhh_eg_ctas)]
 
 egresos = egresos[
     (egresos['TipoOrigen'] == "Compra") |                                                         # Se toman los movimientos con TipoOrigen = 8 (Compras)
@@ -231,7 +305,7 @@ egresos_detalle['Origen'] = 'Compras'
 egresos_detalle.rename(columns={'FechaCreacion': 'Fecha'}, inplace=True)
 egresos_detalle = egresos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'RazonSocial', 'Origen', 'TipoOrigen']]
 
-datos = pd.concat([ventas_mensual, sueldos_mensual, cargas_sociales_final, sindicato_final, egresos_mensual])
+datos = pd.concat([ventas_mensual, sueldos_mensual, cargas_sociales_final, egresos_mensual])
 #Obtenog códigos que luego uso
 codigos = datos[['Concepto', 'Numero']].drop_duplicates()
 
@@ -239,7 +313,6 @@ movimientos = pd.concat([
     ventas_detalle,
     sueldos_detalle,
     cargas_sociales_detalle,
-    sindicato_detalle,
     egresos_detalle
 ], ignore_index=True)
 
@@ -265,7 +338,7 @@ def add_prefix(concepto):
         return concepto_str
     elif "Ventas netas" in concepto_str:
         return "00-" + concepto_str
-    elif any(x in concepto_str for x in ["Sueldos Y Jornales", "Cargas Sociales", "Sindicato"]):
+    elif any(x in concepto_str for x in ["Sueldos - ", "Sueldos Y Jornales", "Cargas Sociales", "Sindicato"]):
         return "01-" + concepto_str
     else:
         return "02-" + concepto_str
@@ -312,8 +385,7 @@ bsas_cash_flow['Grupo'] = bsas_cash_flow['Concepto'].apply(get_grupo)
 def ordenar(datos): 
     orden_conceptos = [
         "00-Ventas netas - Bs.As.", "00-Ventas netas - Salta", "00-Ventas netas - Otros",
-        "01-Sueldos Y Jornales A Pagar Patogenicos", "01-Sueldos Y Jornales A Pagar Bs As", 
-        "01-Sindicato - Bs.As.", "01-Sindicato - Salta", 
+        "01-Sueldos - Salta", "01-Sueldos - Bs.As.",
         "01-Cargas Sociales - Bs.As.", "01-Cargas Sociales - Salta"
     ]
     categorias_unicas = orden_conceptos + sorted(set(datos["Concepto"].unique()) - set(orden_conceptos))
