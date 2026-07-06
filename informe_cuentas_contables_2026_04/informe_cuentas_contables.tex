@@ -64,7 +64,7 @@ El proceso comprende los siguientes pasos:
 \begin{enumerate}
     \item \textbf{Conexión a la base de datos} mediante credenciales almacenadas.
     \item \textbf{Extracción de ventas} desde el módulo de facturación, con clasificación por unidad de negocio.
-    \item \textbf{Extracción de gastos} desde el libro diario (asientos contables), clasificados en tres categorías: sueldos, cargas sociales (que incluyen los aportes sindicales) y otros egresos operativos.
+    \item \textbf{Extracción de gastos} desde el libro diario (asientos contables), clasificados en tres categorías: sueldos, cargas sociales (que incluyen los aportes sindicales) y otros egresos operativos. El conjunto de cuentas a considerar como egreso se define en la planilla \texttt{DGM - Cuentas Contables.xlsx} mediante una columna \texttt{Considerar} (Si/No) que mantiene el cliente.
     \item \textbf{Consolidación} de ingresos y egresos en tablas pivoteadas por mes.
     \item \textbf{Exportación a Excel} con una hoja por unidad de negocio: \emph{Bs.As.} y \emph{Salta}.
     \item \textbf{Visualización de resultados en PowerBI} a través de un dashboard que consume el mismo archivo Excel.
@@ -110,7 +110,7 @@ Los ingresos se extraen del módulo de facturación (tablas \texttt{facturas} y 
 % ─────────────────────────────────────────────
 \section{Egresos --- Cuentas Contables por Categoría}
 
-Los gastos se extraen del libro diario a través de las tablas \texttt{asientos} y \texttt{asientositems}, filtrando por número de cuenta contable o por descripción.
+Los gastos se extraen del libro diario a través de las tablas \texttt{asientos} y \texttt{asientositems}. Los sueldos y las cargas sociales se toman de las cuentas de resultado detalladas a continuación; el resto de los egresos operativos se selecciona a partir de la planilla maestra de cuentas \texttt{DGM - Cuentas Contables.xlsx}, según el criterio de inclusión que se describe en la sección \emph{Otros Egresos Operativos}.
 
 % ---- 4.1 Sueldos
 \subsection{Sueldos y Jornales}
@@ -172,8 +172,39 @@ Los \textbf{aportes sindicales} quedan comprendidos dentro de las cargas sociale
 \text{Cargas Sociales}_{UdN} = \text{Total Cargas Sociales} \times \frac{\text{Sueldos}_{UdN}}{\text{Total Sueldos}}
 \]
 
+% ---- 4.3 Otros egresos operativos
+\subsection{Otros Egresos Operativos --- Selección de cuentas}
+
+El universo de cuentas que se consideran egresos operativos no está fijo en el código: se define en la \textbf{planilla maestra de cuentas} \texttt{DGM - Cuentas Contables.xlsx}, que reproduce el plan de cuentas exportado del sistema de gestión. El script lee esa planilla en cada corrida, por lo que altas, bajas o reclasificaciones de cuentas se reflejan automáticamente sin modificar el programa.
+
+\textbf{Criterio de inclusión (columna \texttt{Considerar}):} La planilla incluye una columna \texttt{Considerar} en la que \textbf{el cliente marca cada cuenta con ``Si'' o ``No''} según deba computarse o no como egreso operativo del margen. El script incorpora únicamente las cuentas marcadas ``Si'' (actualmente 306 de 658 cuentas) y descarta las marcadas ``No''. Este criterio es la vía prevista para que el cliente ajuste qué cuentas entran al informe.
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{cl}
+\toprule
+\rowcolor{azulclaro}
+\textbf{Columna \texttt{Considerar}} & \textbf{Tratamiento} \\
+\midrule
+Si & La cuenta se incluye como egreso operativo. \\
+\rowcolor{grisclaro}
+No & La cuenta se excluye del informe. \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.5em}
+
+\textbf{Reglas complementarias:}
+\begin{itemize}
+    \item Se incorporan además, por descripción, las cuentas cuyo nombre contiene la palabra ``Mantenimiento'', aunque estén marcadas ``No''.
+    \item Las cuentas de \textbf{sueldos y cargas sociales} (sección anterior), aunque figuren como ``Si'' en la planilla, se procesan por separado y se \textbf{excluyen} de este bloque para evitar la doble contabilización.
+    \item La asignación a unidad de negocio surge de la descripción de la cuenta: las que contienen \texttt{BSAS}/\texttt{BS AS} se asignan a Bs.As.\ y las que contienen \texttt{PAT}/\texttt{SALTA} a Salta.
+\end{itemize}
+
 % ─────────────────────────────────────────────
 \section{Cuentas Contables --- Buenos Aires}
+
+A modo ilustrativo se listan algunas de las cuentas marcadas ``Si'' en \texttt{DGM - Cuentas Contables.xlsx} para esta unidad. El listado completo es el que surge de la planilla en cada corrida.
 
 \vspace{0.5em}
 \begin{center}
@@ -211,6 +242,8 @@ Los \textbf{aportes sindicales} quedan comprendidos dentro de las cargas sociale
 % ─────────────────────────────────────────────
 \vspace{2\baselineskip}
 \section{Cuentas Contables --- Salta}
+
+A modo ilustrativo se listan algunas de las cuentas marcadas ``Si'' en \texttt{DGM - Cuentas Contables.xlsx} para esta unidad. El listado completo es el que surge de la planilla en cada corrida.
 
 \vspace{0.5em}
 \begin{center}

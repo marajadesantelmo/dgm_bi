@@ -146,6 +146,11 @@ sueldos_eg_ctas = ['42101029', '42102023', '42201029', '42202023']   # BSAS/PAT 
 cargas_eg_ctas  = ['42101009', '42102005', '42201009', '42202005']   # BSAS/PAT CARGAS SOCIALES (costo svc + admin)
 rrhh_eg_ctas = sueldos_eg_ctas + cargas_eg_ctas
 
+# Para las filas de RRHH la columna RazonSocial no aplica (no hay cliente/proveedor):
+# se usa para indicar el ORIGEN del dato (cuenta de resultado vs. fallback patrimonial).
+ORIGEN_EGRESO      = 'Cuenta de egreso (devengado)'
+ORIGEN_PATRIMONIAL = 'Cuenta patrimonial (fallback)'
+
 def _categoria_rrhh(row):
     # Clasifica cada movimiento para separar el sueldo real del "ruido" contable.
     if row['TipoOrigen'] in ('AsientoCierreResultado', 'AsientoCierrePatrimonio'):
@@ -196,6 +201,7 @@ rrhh_eg_det = rrhh_eg_cerr[['Unidad de Negocios', 'FechaContable', 'Mes', 'Conce
                             'Firma', 'Detalle', 'TipoOrigen']].copy()
 rrhh_eg_det.rename(columns={'FechaContable': 'Fecha', 'Firma': 'Importe'}, inplace=True)
 rrhh_eg_det['Origen'] = 'Sueldos'
+rrhh_eg_det['RazonSocial'] = ORIGEN_EGRESO
 
 # ── Fallback PATRIMONIAL (meses > cutoff) ────────────────────────────────────
 patr = gastos[gastos['Numero'].astype(str).isin(['21301001', '21301002'])].copy()
@@ -238,7 +244,9 @@ patr_sueldos_det = patr[['Unidad de Negocios', 'FechaCreacion', 'Mes', 'Numero',
 patr_sueldos_det.rename(columns={'FechaCreacion': 'Fecha', 'Importe1': 'Importe'}, inplace=True)
 patr_sueldos_det['Concepto'] = 'Sueldos - ' + patr_sueldos_det['Unidad de Negocios']
 patr_sueldos_det['Origen'] = 'Sueldos'
+patr_sueldos_det['RazonSocial'] = ORIGEN_PATRIMONIAL
 patr_cargas_det = patr_cargas[['Unidad de Negocios', 'Mes', 'Importe', 'Concepto']].copy()
+patr_cargas_det['RazonSocial'] = ORIGEN_PATRIMONIAL
 
 # ── Combinación EGRESO (cerrado) + PATRIMONIO (fallback) ─────────────────────
 sueldos_mensual = pd.concat([
@@ -257,10 +265,10 @@ sueldos_detalle = pd.concat([
     rrhh_eg_det[rrhh_eg_det['Concepto'].str.startswith('Sueldos')],
     patr_sueldos_det,
 ], ignore_index=True)
-sueldos_detalle = sueldos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'Origen', 'TipoOrigen']]
+sueldos_detalle = sueldos_detalle[['Unidad de Negocios', 'Fecha', 'Mes', 'Concepto', 'Numero', 'Importe', 'Detalle', 'RazonSocial', 'Origen', 'TipoOrigen']]
 
 cargas_sociales_detalle = pd.concat([
-    rrhh_eg_det[rrhh_eg_det['Concepto'].str.startswith('Cargas Sociales')][['Mes', 'Unidad de Negocios', 'Importe', 'Concepto']],
+    rrhh_eg_det[rrhh_eg_det['Concepto'].str.startswith('Cargas Sociales')][['Mes', 'Unidad de Negocios', 'Importe', 'Concepto', 'RazonSocial']],
     patr_cargas_det,
 ], ignore_index=True)
 
