@@ -14,9 +14,12 @@ cuentas_si = cuentas_contables[cuentas_contables['Considerar'].str.upper().str.s
 cuentas_si['Numero'] = cuentas_si['Numero'].apply(lambda x: str(int(float(x))) if pd.notna(x) else '').str.strip()
 numeros_si = cuentas_si['Numero'].tolist()
 bsas_numeros = cuentas_si[cuentas_si['Descripcion'].str.contains('BSAS|BS AS', na=False)]['Numero'].tolist()
+# Salta: cuentas con etiqueta regional PAT o SALTA, EXCLUYENDO las que llevan el prefijo
+# BSAS. Así "BSAS PATENTES" (que contiene el substring 'PAT') queda en Bs.As. y no en Salta,
+# mientras "PAT ..." y las de PATOGENICOS/PATOLOGICOS siguen en Salta.
 salta_numeros = cuentas_si[
-    (cuentas_si['Descripcion'].str.contains('PAT', na=False)) |
-    (cuentas_si['Descripcion'].str.contains('SALTA', na=False) & ~cuentas_si['Descripcion'].str.contains('BSAS|BS AS', na=False))
+    cuentas_si['Descripcion'].str.contains('PAT|SALTA', na=False) &
+    ~cuentas_si['Descripcion'].str.contains('BSAS|BS AS', na=False)
 ]['Numero'].tolist()
 
 connection = mysql.connector.connect(
@@ -298,8 +301,12 @@ mask_hernandez = egresos['RazonSocial'].str.upper().str.strip() == 'HERNANDEZ GU
 egresos.loc[mask_hernandez, 'Unidad de Negocios'] = 'Salta'
 egresos.loc[mask_hernandez, 'Concepto'] = egresos.loc[mask_hernandez, 'Concepto'].str.replace('Bsas ', 'Pat ', regex=False)
 
-# Hardcode: GOBIERNO DE LA CIUDAD DE BUENOS AIRES asignado a Salta → concepto Pat en lugar de Bsas
-mask_gcba = (egresos['RazonSocial'].str.upper().str.strip() == 'GOBIERNO DE LA CIUDAD DE BUENOS AIRES') & (egresos['Unidad de Negocios'] == 'Salta')
+# Hardcode: GOBIERNO DE LA CIUDAD DE BUENOS AIRES → Salta.
+# Son multas de patente de un vehículo de Salta labradas en Buenos Aires: el gasto es de
+# Salta aunque la cuenta sea BSAS. Se reasigna la unidad y se reetiqueta el concepto Bsas→Pat.
+# (El resto de las cuentas "BSAS PATENTES" quedan correctamente en Bs.As.)
+mask_gcba = egresos['RazonSocial'].str.upper().str.strip() == 'GOBIERNO DE LA CIUDAD DE BUENOS AIRES'
+egresos.loc[mask_gcba, 'Unidad de Negocios'] = 'Salta'
 egresos.loc[mask_gcba, 'Concepto'] = egresos.loc[mask_gcba, 'Concepto'].str.replace('Bsas ', 'Pat ', regex=False)
 
 egresos_mensual = egresos.groupby([ "Unidad de Negocios", "Mes", "Numero", "Concepto"])["Importe1"].sum().reset_index()

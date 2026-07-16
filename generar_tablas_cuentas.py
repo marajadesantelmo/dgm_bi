@@ -57,6 +57,16 @@ def cargar():
     mov = pd.read_csv(CSV, encoding="utf-8-sig")
     mov["Num"] = mov["Numero"].apply(num_str)
     mov["Ultimo_Mov"] = pd.to_datetime(mov["Ultimo_Mov"], errors="coerce")
+    # La DB puede tener varias descripciones para el mismo número de cuenta;
+    # se colapsan por número (sumando movimientos/importes, fecha máxima).
+    mov = mov.groupby("Num", as_index=False).agg(
+        Movs_Total=("Movs_Total", "sum"),
+        Movs_2024=("Movs_2024", "sum"),
+        Asientos_Total=("Asientos_Total", "sum"),
+        Ultimo_Mov=("Ultimo_Mov", "max"),
+        Debe_2024=("Debe_2024", "sum"),
+        Haber_2024=("Haber_2024", "sum"),
+    )
     mov["Neto_2024"] = mov["Debe_2024"].fillna(0) - mov["Haber_2024"].fillna(0)
 
     cc = pd.read_excel(XLSX)
@@ -65,10 +75,12 @@ def cargar():
     cc["Num"] = cc["Numero"].apply(num_str)
     cc["Considerar"] = cc["Considerar"].astype(str).str.upper().str.strip().map(
         lambda v: "Sí" if v == "SI" else "No")
+    # Deduplicar el plan de cuentas por número, priorizando "Sí"
+    cc = cc.sort_values("Considerar", ascending=False).drop_duplicates("Num", keep="first")
 
     # Sólo cuentas levantadas del Excel; nombre desde el plan de cuentas
     df = mov.merge(cc[["Num", "Descripcion", "Considerar", "Imputable"]],
-                   on="Num", how="inner", suffixes=("_mov", ""))
+                   on="Num", how="inner")
     # Sólo cuentas con movimientos en el período del informe...
     df = df[df["Movs_2024"].fillna(0) > 0].copy()
     # ...y marcadas "Si" en la columna Considerar (las que entran al margen)
