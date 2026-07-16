@@ -172,6 +172,12 @@ rrhh_eg['Firma'] = rrhh_eg['Importe1'] * rrhh_eg['TipoSaldo'].map({0: 1, 1: -1})
 rrhh_eg['Mes'] = rrhh_eg['FechaContable'].dt.to_period('M')
 rrhh_eg['Unidad de Negocios'] = rrhh_eg['Numero'].apply(lambda n: 'Bs.As.' if n.startswith('421') else 'Salta')
 rrhh_eg['Tipo'] = rrhh_eg['Numero'].apply(lambda n: 'Sueldos' if n in sueldos_eg_ctas else 'Cargas Sociales')
+# Desagregación pedida por el cliente: Bs.As. se separa por el prefijo de cuenta de egreso
+#   42101 = BSAS COSTO DEL SERVICIO  → 'Consultoría y operaciones'
+#   42102 = BSAS GASTOS DE ADMIN.    → 'Administración'
+# Salta (42201/42202) NO se desagrega → SubClasif vacío (queda una sola línea por Tipo).
+SUBCLASIF_BSAS = {'42101': 'Consultoría y operaciones', '42102': 'Administración'}
+rrhh_eg['SubClasif'] = rrhh_eg['Numero'].str[:5].map(SUBCLASIF_BSAS).fillna('')
 
 # Nos quedamos con 'base' y 'provision' (descartamos inflación, cierre y reversión).
 # Regla por (cuenta, mes): usar la suma 'base'; si esa suma es 0, usar la 'provision'
@@ -195,7 +201,11 @@ cutoff = rrhh_keep.loc[rrhh_keep['Tipo'] == 'Sueldos', 'Mes'].max()
 # ── Resumen y detalle EGRESO (meses entre 2024-01 y el cutoff) ───────────────
 _mes_min = pd.Period('2024-01', freq='M')
 rrhh_eg_cerr = rrhh_keep[(rrhh_keep['Mes'] <= cutoff) & (rrhh_keep['Mes'] >= _mes_min)].copy()
-rrhh_eg_cerr['Concepto'] = rrhh_eg_cerr['Tipo'] + ' - ' + rrhh_eg_cerr['Unidad de Negocios']
+# Bs.As. lleva la sub-clasificación en el concepto; Salta queda como una sola línea por Tipo.
+rrhh_eg_cerr['Concepto'] = rrhh_eg_cerr.apply(
+    lambda r: f"{r['Tipo']} {r['SubClasif']} - {r['Unidad de Negocios']}"
+              if r['SubClasif'] else f"{r['Tipo']} - {r['Unidad de Negocios']}",
+    axis=1)
 
 rrhh_eg_mes = (rrhh_eg_cerr.groupby(['Unidad de Negocios', 'Tipo', 'Concepto', 'Mes'])['Firma']
                .sum().reset_index().rename(columns={'Firma': 'Importe'}))
@@ -213,6 +223,13 @@ patr = patr[(patr['TipoSaldo'] == 0) & (~patr['Detalle'].str.contains('Asiento|A
 patr['Mes'] = patr['FechaCreacion'].dt.to_period('M')
 patr = patr[patr['Mes'] > cutoff].copy()
 patr['Unidad de Negocios'] = patr['Numero'].map({'21301001': 'Bs.As.', '21301002': 'Salta'})
+
+# Las cuentas patrimoniales "a pagar" (2.1.3) NO distinguen admin/operativo: para los meses
+# de fallback Bs.As. queda en una sola línea "(sin clasificar)". Salta se agrega igual que siempre.
+def _concepto_patr(tipo, unidad):
+    if unidad == 'Bs.As.':
+        return f"{tipo} (sin clasificar) - {unidad}"
+    return f"{tipo} - {unidad}"
 
 # Sueldos patrimoniales (fallback)
 patr_sueldos = patr.groupby(['Unidad de Negocios', 'Mes'])['Importe1'].sum().reset_index()
@@ -234,18 +251,18 @@ cs_tot = cs.groupby('Mes')['Importe1'].sum().rename('CargasTot').reset_index()
 patr_cargas = _part.merge(cs_tot, on='Mes', how='left')
 patr_cargas['Importe'] = patr_cargas['CargasTot'].fillna(0) * patr_cargas['Participacion']
 patr_cargas['Tipo'] = 'Cargas Sociales'
-patr_cargas['Concepto'] = 'Cargas Sociales - ' + patr_cargas['Unidad de Negocios']
+patr_cargas['Concepto'] = patr_cargas['Unidad de Negocios'].apply(lambda u: _concepto_patr('Cargas Sociales', u))
 
 patr_mes = pd.concat([
     patr_sueldos[['Unidad de Negocios', 'Mes', 'Importe', 'Tipo']],
     patr_cargas[['Unidad de Negocios', 'Mes', 'Importe', 'Tipo']],
 ], ignore_index=True)
-patr_mes['Concepto'] = patr_mes['Tipo'] + ' - ' + patr_mes['Unidad de Negocios']
+patr_mes['Concepto'] = patr_mes.apply(lambda r: _concepto_patr(r['Tipo'], r['Unidad de Negocios']), axis=1)
 
 # Detalle patrimonial (fallback)
 patr_sueldos_det = patr[['Unidad de Negocios', 'FechaCreacion', 'Mes', 'Numero', 'Detalle', 'Importe1', 'TipoOrigen']].copy()
 patr_sueldos_det.rename(columns={'FechaCreacion': 'Fecha', 'Importe1': 'Importe'}, inplace=True)
-patr_sueldos_det['Concepto'] = 'Sueldos - ' + patr_sueldos_det['Unidad de Negocios']
+patr_sueldos_det['Concepto'] = patr_sueldos_det['Unidad de Negocios'].apply(lambda u: _concepto_patr('Sueldos', u))
 patr_sueldos_det['Origen'] = 'Sueldos'
 patr_sueldos_det['RazonSocial'] = ORIGEN_PATRIMONIAL
 patr_cargas_det = patr_cargas[['Unidad de Negocios', 'Mes', 'Importe', 'Concepto']].copy()
@@ -353,7 +370,7 @@ def add_prefix(concepto):
         return concepto_str
     elif "Ventas netas" in concepto_str:
         return "00-" + concepto_str
-    elif any(x in concepto_str for x in ["Sueldos - ", "Sueldos Y Jornales", "Cargas Sociales", "Sindicato"]):
+    elif any(x in concepto_str for x in ["Sueldos", "Cargas Sociales", "Sindicato"]):
         return "01-" + concepto_str
     else:
         return "02-" + concepto_str
@@ -400,8 +417,12 @@ bsas_cash_flow['Grupo'] = bsas_cash_flow['Concepto'].apply(get_grupo)
 def ordenar(datos): 
     orden_conceptos = [
         "00-Ventas netas - Bs.As.", "00-Ventas netas - Salta", "00-Ventas netas - Otros",
-        "01-Sueldos - Salta", "01-Sueldos - Bs.As.",
-        "01-Cargas Sociales - Bs.As.", "01-Cargas Sociales - Salta"
+        "01-Sueldos - Salta",
+        "01-Sueldos Consultoría y operaciones - Bs.As.", "01-Sueldos Administración - Bs.As.",
+        "01-Sueldos (sin clasificar) - Bs.As.",
+        "01-Cargas Sociales - Salta",
+        "01-Cargas Sociales Consultoría y operaciones - Bs.As.", "01-Cargas Sociales Administración - Bs.As.",
+        "01-Cargas Sociales (sin clasificar) - Bs.As.",
     ]
     categorias_unicas = orden_conceptos + sorted(set(datos["Concepto"].unique()) - set(orden_conceptos))
     # Ensure 'Concepto' is a categorical variable with a predefined order
